@@ -4,7 +4,6 @@ from tqdm import tqdm
 import soundfile as sf
 import pandas as pd
 import numpy as np
-import json
 import os
 
 
@@ -78,14 +77,16 @@ class LibriSpeechDataset(Sequence):
         # Trim too-small files
         self.df = self.df[self.df['seconds'] >= self.fragment_seconds]
         self.n_files = len(self.df)
+        self.unique_speakers = len(self.df['id'].unique())
 
         # Index of dataframe has direct correspondence to item in dataset
         self.df.reset_index(drop=True)
+        self.df.index = self.df.index - 1  # Pandas starts dataframe indexes from 1
 
         # Create dicts
-        self.datasetid_to_filepath = self.df.to_dict()['filepath']
-        self.datasetid_to_speaker_id = self.df.to_dict()['id']
-        self.datasetid_to_sex = self.df.to_dict()['filepath']
+        self.datasetid_to_filepath = self.df.to_dict()['filepath'].iteritems()
+        self.datasetid_to_speaker_id = self.df.to_dict()['id'].iteritems()
+        self.datasetid_to_sex = self.df.to_dict()['sex'].iteritems()
 
         print('Finished indexing data. {} usable files found.'.format(self.n_files))
 
@@ -112,7 +113,7 @@ class LibriSpeechDataset(Sequence):
 
     def build_verification_batch(self, batchsize):
         """
-        This function builds a batch of verification task samples meant to be input into a siamese network. Each sample
+        This method builds a batch of verification task samples meant to be input into a siamese network. Each sample
         is two instances of the dataset retrieved with the __getitem__ function and a label which indicates whether the
         instances belong to the same speaker or not. Each batch is 50% pairs of instances from the same speaker and 50%
         pairs of instances from different speakers.
@@ -142,10 +143,46 @@ class LibriSpeechDataset(Sequence):
 
         return [input_1, input_2], outputs
 
-    def build_oneshot_task(self):
-        pass
+    def build_n_shot_task(self, k, n=1):
+        """
+        This method builds a k-way n-shot classification task. It returns a support set of n audio samples each from k
+        unique speakers. In addition it will return a query sample. Downstream models will attempt to match the query
+        sample to the correct samples in the support set.
+        :param k: Number of unique speakers to include in this task
+        :param n: Number of audio samples to include from each speaker
+        :return:
+        """
+        if k >= self.unique_speakers:
+            raise(ValueError, 'k must be smaller than the number of unique speakers in this dataset!')
 
-    def index_subset(self, subset):
+        if k <= 1:
+            raise(ValueError, 'k must be greater than or equal to one!')
+
+        query = self.df.sample(1, weights='length')
+        query_sample = self[query.index.values[0]]
+
+        same_speaker = self.df['id'] == query['id'].values[0]
+        not_same_sample = self.df.index != query.index.values[0]
+        correct_samples = self.df[same_speaker & not_same_sample].sample(n, weights='length')
+
+        other_support_samples = []
+        for i in range(k-1):
+            other_support_samples.append(
+                self.df[~same_speaker].sample(n, weights='length')
+            )
+        support_set = pd.concat([correct_samples]+other_support_samples)
+        support_set_samples = tuple(np.stack(i) for i in zip(*[self[i] for i in support_set.index]))
+
+        return query_sample, support_set_samples
+
+    @staticmethod
+    def index_subset(subset):
+        """
+        Index a subset by looping through all of it's files and recording their speaker ID, filepath and length.
+        :param subset: Name of the subset
+        :return: A list of dicts containing information about all the audio files in a particular subset of the
+        LibriSpeech dataset
+        """
         audio_files = []
         print('Indexing {}...'.format(subset))
         # Quick first pass to find total for tqdm bar
@@ -171,7 +208,6 @@ class LibriSpeechDataset(Sequence):
 
                 audio_files.append({
                     'id': librispeech_id,
-                    # 'dataset_id': self.datasetid,
                     'filepath': os.path.join(root, f),
                     'length': len(instance),
                     'seconds': len(instance) * 1. / LIBRISPEECH_SAMPLING_RATE
@@ -179,8 +215,3 @@ class LibriSpeechDataset(Sequence):
 
         progress_bar.close()
         return audio_files
-
-
-# test = LibriSpeechDataset(['dev-clean'], 3, cache=False, label='speaker')
-#
-# print test[0]
