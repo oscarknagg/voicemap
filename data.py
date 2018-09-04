@@ -48,7 +48,7 @@ class LibriSpeechDataset(Sequence):
                     found_cache[s] = True
 
         # Index the remaining subsets if any
-        if all(found_cache.keys()) and cache:
+        if all(found_cache.values()) and cache:
             self.df = pd.concat(cached_df)
         else:
             df = pd.read_csv(PATH+'/data/LibriSpeech/SPEAKERS.TXT', skiprows=11, delimiter='|', error_bad_lines=False)
@@ -75,18 +75,22 @@ class LibriSpeechDataset(Sequence):
             self.df[self.df['subset'] == s].to_csv(PATH + '/data/{}.index.csv'.format(s), index=False)
 
         # Trim too-small files
-        self.df = self.df[self.df['seconds'] >= self.fragment_seconds]
+        self.df = self.df[self.df['seconds'] > self.fragment_seconds]
         self.n_files = len(self.df)
         self.unique_speakers = len(self.df['id'].unique())
+
+        # Renaming for clarity
+        self.df = self.df.rename(columns={'id': 'speaker_id', 'minutes': 'speaker_minutes'})
 
         # Index of dataframe has direct correspondence to item in dataset
         self.df.reset_index(drop=True)
         self.df.index = self.df.index - 1  # Pandas starts dataframe indexes from 1
+        self.df = self.df.assign(id=self.df.index.values)
 
         # Create dicts
-        self.datasetid_to_filepath = self.df.to_dict()['filepath'].iteritems()
-        self.datasetid_to_speaker_id = self.df.to_dict()['id'].iteritems()
-        self.datasetid_to_sex = self.df.to_dict()['sex'].iteritems()
+        self.datasetid_to_filepath = self.df.to_dict()['filepath']
+        self.datasetid_to_speaker_id = self.df.to_dict()['speaker_id']
+        self.datasetid_to_sex = self.df.to_dict()['sex']
 
         print('Finished indexing data. {} usable files found.'.format(self.n_files))
 
@@ -124,17 +128,17 @@ class LibriSpeechDataset(Sequence):
         alike_pairs = pd.merge(
             self.df.sample(batchsize, weights='length'),
             self.df,
-            on='id'
-        ).sample(batchsize / 2)[['id', 'dataset_id_x', 'dataset_id_y']]
+            on='speaker_id'
+        ).sample(batchsize / 2)[['speaker_id', 'id_x', 'id_y']]
 
-        input_1_alike = np.stack([self[i][0] for i in alike_pairs['dataset_id_x'].values])
-        input_2_alike = np.stack([self[i][0] for i in alike_pairs['dataset_id_y'].values])
+        input_1_alike = np.stack([self[i][0] for i in alike_pairs['id_x'].values])
+        input_2_alike = np.stack([self[i][0] for i in alike_pairs['id_y'].values])
 
         x = self.df.sample(batchsize / 2, weights='length')
-        y = self.df[~self.df['id'].isin(x['id'])].sample(batchsize / 2, weights='length')
+        y = self.df[~self.df['speaker_id'].isin(x['speaker_id'])].sample(batchsize / 2, weights='length')
 
-        input_1_different = np.stack([self[i][0] for i in x['dataset_id'].values])
-        input_2_different = np.stack([self[i][0] for i in y['dataset_id'].values])
+        input_1_different = np.stack([self[i][0] for i in x['id'].values])
+        input_2_different = np.stack([self[i][0] for i in y['id'].values])
 
         input_1 = np.vstack([input_1_alike, input_1_different])[:, :, np.newaxis]
         input_2 = np.vstack([input_2_alike, input_2_different])[:, :, np.newaxis]
@@ -161,7 +165,7 @@ class LibriSpeechDataset(Sequence):
         query = self.df.sample(1, weights='length')
         query_sample = self[query.index.values[0]]
 
-        same_speaker = self.df['id'] == query['id'].values[0]
+        same_speaker = self.df['speaker_id'] == query['speaker_id'].values[0]
         not_same_sample = self.df.index != query.index.values[0]
         correct_samples = self.df[same_speaker & not_same_sample].sample(n, weights='length')
 
