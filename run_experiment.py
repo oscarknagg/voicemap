@@ -22,6 +22,7 @@ model_n_filters = 32
 model_embedding_dimension = 128
 training_set = ['train-clean-100', 'train-clean-360']
 validation_set = 'dev-clean'
+num_epochs = 25
 evaluate_every_n_batches = 1000
 num_evaluation_tasks = 500
 n_shot_classification = 1
@@ -50,14 +51,17 @@ siamese.compile(loss='binary_crossentropy', optimizer=opt, metrics=['accuracy'])
 ###########################
 # Define helper functions #
 ###########################
-def preprocessor(batch, downsampling, whitening=True):
-    i_1, i_2 = batch
-    i_1 = i_1[:, ::downsampling, :]
-    i_2 = i_2[:, ::downsampling, :]
-    if whitening:
-        i_1, i_2 = whiten(i_1), whiten(i_2)
+def preprocessor(downsampling, whitening=True):
+    def preprocessor_(batch):
+        i_1, i_2 = batch
+        i_1 = i_1[:, ::downsampling, :]
+        i_2 = i_2[:, ::downsampling, :]
+        if whitening:
+            i_1, i_2 = whiten(i_1), whiten(i_2)
 
-    return i_1, i_2
+        return i_1, i_2
+
+    return preprocessor_
 
 
 def verification_batch_generator(sequence, batchsize, preprocessor=lambda x: x):
@@ -70,8 +74,9 @@ def verification_batch_generator(sequence, batchsize, preprocessor=lambda x: x):
         yield ([input_1, input_2], labels)
 
 
-train_generator = verification_batch_generator(train_sequence, batchsize)
-valid_generator = verification_batch_generator(valid_sequence, batchsize)
+whiten_downsample = preprocessor(downsampling, whitening=True)
+train_generator = verification_batch_generator(train_sequence, batchsize, preprocessor=whiten_downsample)
+valid_generator = verification_batch_generator(valid_sequence, batchsize, preprocessor=whiten_downsample)
 
 #################
 # Training Loop #
@@ -80,15 +85,15 @@ t0 = time.time()
 
 print('\n[Batches, Seconds]')
 # TODO: Faster creation of verification batches in order to get 100% GPU usage
-for n_epochs in range(25):
+for n_epoch in range(num_epochs):
     siamese.fit_generator(
         generator=train_generator,
         steps_per_epoch=evaluate_every_n_batches,
         validation_data=valid_generator,
         validation_steps=100,
-        epochs=n_epochs+1,
+        epochs=n_epoch + 1,
         workers=4,
-        initial_epoch=n_epochs,
+        initial_epoch=n_epoch,
         use_multiprocessing=True
     )
 
@@ -104,7 +109,7 @@ for n_epochs in range(25):
         input_2 = support_set_samples[0]
 
         # Perform preprocessing
-        input_1, input_2 = preprocessor((input_1, input_2))
+        input_1, input_2 = whiten_downsample((input_1, input_2))
 
         pred = siamese.predict([input_1, input_2])
 
@@ -113,7 +118,7 @@ for n_epochs in range(25):
             n_correct += 1
 
     print('[{:5d}, {:3f}] {:3f} val_oneshot_acc'.format(
-        (n_epochs + 1) * evaluate_every_n_batches,
+        (n_epoch + 1) * evaluate_every_n_batches,
         time.time() - t0,
         n_correct * 1. / num_evaluation_tasks
     ))

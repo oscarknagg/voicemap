@@ -115,6 +115,30 @@ class LibriSpeechDataset(Sequence):
     def __len__(self):
         return self.n_files
 
+    def get_alike_pairs(self, num_pairs):
+        # This code block generates a DataFrame where each row
+        # contains a speaker ID and two dataset IDs from that speaker
+        alike_pairs = pd.merge(
+            self.df.sample(num_pairs*2, weights='length'),
+            self.df,
+            on='speaker_id'
+        ).sample(num_pairs)[['speaker_id', 'id_x', 'id_y']]
+
+        alike_pairs = zip(alike_pairs['id_x'].values, alike_pairs['id_y'].values)
+
+        return alike_pairs
+
+    def get_differing_pairs(self, num_pairs):
+        # First get a random sample from the dataset and then get a random sample from the remaining part of the dataset
+        # that doesn't contain any speakers from the first random sample
+        random_sample = self.df.sample(num_pairs, weights='length')
+        random_sample_from_other_speakers = self.df[~self.df['speaker_id'].isin(
+            random_sample['speaker_id'])].sample(num_pairs, weights='length')
+
+        differing_pairs = zip(random_sample['id'].values, random_sample_from_other_speakers['id'].values)
+
+        return differing_pairs
+
     def build_verification_batch(self, batchsize):
         """
         This method builds a batch of verification task samples meant to be input into a siamese network. Each sample
@@ -125,20 +149,17 @@ class LibriSpeechDataset(Sequence):
         :return: Inputs for both sides of the siamese network and outputs indicating whether they are from the same
         speaker or not.
         """
-        alike_pairs = pd.merge(
-            self.df.sample(batchsize, weights='length'),
-            self.df,
-            on='speaker_id'
-        ).sample(batchsize / 2)[['speaker_id', 'id_x', 'id_y']]
+        alike_pairs = self.get_alike_pairs(batchsize / 2)
 
-        input_1_alike = np.stack([self[i][0] for i in alike_pairs['id_x'].values])
-        input_2_alike = np.stack([self[i][0] for i in alike_pairs['id_y'].values])
+        # Take only the instances not labels and stack to form a batch of pairs of instances from the same speaker
+        input_1_alike = np.stack([self[i][0] for i in zip(*alike_pairs)[0]])
+        input_2_alike = np.stack([self[i][0] for i in zip(*alike_pairs)[1]])
 
-        x = self.df.sample(batchsize / 2, weights='length')
-        y = self.df[~self.df['speaker_id'].isin(x['speaker_id'])].sample(batchsize / 2, weights='length')
+        differing_pairs = self.get_differing_pairs(batchsize / 2)
 
-        input_1_different = np.stack([self[i][0] for i in x['id'].values])
-        input_2_different = np.stack([self[i][0] for i in y['id'].values])
+        # Take only the instances not labels and stack to form a batch of pairs of instances from different speakers
+        input_1_different = np.stack([self[i][0] for i in zip(*differing_pairs)[0]])
+        input_2_different = np.stack([self[i][0] for i in zip(*differing_pairs)[0]])
 
         input_1 = np.vstack([input_1_alike, input_1_different])[:, :, np.newaxis]
         input_2 = np.vstack([input_2_alike, input_2_different])[:, :, np.newaxis]
@@ -165,14 +186,20 @@ class LibriSpeechDataset(Sequence):
         query = self.df.sample(1, weights='length')
         query_sample = self[query.index.values[0]]
 
-        same_speaker = self.df['speaker_id'] == query['speaker_id'].values[0]
+        is_query_speaker = self.df['speaker_id'] == query['speaker_id'].values[0]
         not_same_sample = self.df.index != query.index.values[0]
-        correct_samples = self.df[same_speaker & not_same_sample].sample(n, weights='length')
+        correct_samples = self.df[is_query_speaker & not_same_sample].sample(n, weights='length')
+
+        # Sample k-1 speakers
+        # TODO: weight by length here
+        other_support_set_speakers = np.random.choice(
+            self.df[~is_query_speaker]['speaker_id'].unique(), k-1, replace=False)
 
         other_support_samples = []
         for i in range(k-1):
+            is_same_speaker = self.df['speaker_id'] == other_support_set_speakers[i]
             other_support_samples.append(
-                self.df[~same_speaker].sample(n, weights='length')
+                self.df[~is_query_speaker & is_same_speaker].sample(n, weights='length')
             )
         support_set = pd.concat([correct_samples]+other_support_samples)
         support_set_samples = tuple(np.stack(i) for i in zip(*[self[i] for i in support_set.index]))
