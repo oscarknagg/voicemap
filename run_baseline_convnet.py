@@ -4,7 +4,7 @@ import os
 from keras.optimizers import Adam
 
 from utils import whiten
-from models import get_encoder, build_siamese_net
+from models import get_baseline_convolutional_encoder, build_siamese_net
 from data import LibriSpeechDataset
 from config import LIBRISPEECH_SAMPLING_RATE
 
@@ -42,7 +42,7 @@ valid_sequence = LibriSpeechDataset(validation_set, n_seconds, stochastic=False)
 ################
 # Define model #
 ################
-encoder = get_encoder(model_n_filters, model_embedding_dimension)
+encoder = get_baseline_convolutional_encoder(model_n_filters, model_embedding_dimension)
 siamese = build_siamese_net(encoder, (input_length, 1))
 opt = Adam(clipnorm=1.)
 siamese.compile(loss='binary_crossentropy', optimizer=opt, metrics=['accuracy'])
