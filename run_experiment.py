@@ -2,6 +2,8 @@ import numpy as np
 import time
 import os
 from keras.optimizers import Adam
+
+from utils import whiten
 from models import get_encoder, build_siamese_net
 from data import LibriSpeechDataset
 from config import LIBRISPEECH_SAMPLING_RATE
@@ -48,21 +50,28 @@ siamese.compile(loss='binary_crossentropy', optimizer=opt, metrics=['accuracy'])
 ###########################
 # Define helper functions #
 ###########################
+def preprocessor(batch, downsampling, whitening=True):
+    i_1, i_2 = batch
+    i_1 = i_1[:, ::downsampling, :]
+    i_2 = i_2[:, ::downsampling, :]
+    if whitening:
+        i_1, i_2 = whiten(i_1), whiten(i_2)
+
+    return i_1, i_2
+
+
 def verification_batch_generator(sequence, batchsize, preprocessor=lambda x: x):
     while True:
         ([input_1, input_2], labels) = sequence.build_verification_batch(batchsize)
 
         # Perform preprocessing
-        # 1. Downsample
-        # TODO: Proper scipy resampling
-        input_1 = input_1[:, ::downsampling, :]
-        input_2 = input_2[:, ::downsampling, :]
-        # TODO 2. Whiten
+        input_1, input_2 = preprocessor((input_1, input_2))
+
         yield ([input_1, input_2], labels)
 
 
 train_generator = verification_batch_generator(train_sequence, batchsize)
-
+valid_generator = verification_batch_generator(valid_sequence, batchsize)
 
 #################
 # Training Loop #
@@ -70,18 +79,22 @@ train_generator = verification_batch_generator(train_sequence, batchsize)
 t0 = time.time()
 
 print('\n[Batches, Seconds]')
-# TODO: Multiprocessing creation of verfication batches, try to leverage Sequence
+# TODO: Faster creation of verification batches in order to get 100% GPU usage
 for n_epochs in range(25):
     siamese.fit_generator(
         generator=train_generator,
         steps_per_epoch=evaluate_every_n_batches,
+        validation_data=valid_generator,
+        validation_steps=100,
         epochs=n_epochs+1,
         workers=4,
         initial_epoch=n_epochs,
         use_multiprocessing=True
     )
 
-    # Evaluate here but move to own function
+    # TODO:
+    # Faster/multiprocessing creation of n shot tasks
+    # Move to own function
     n_correct = 0
     for i_eval in range(num_evaluation_tasks):
         query_sample, support_set_samples = valid_sequence.build_n_shot_task(
@@ -91,12 +104,7 @@ for n_epochs in range(25):
         input_2 = support_set_samples[0]
 
         # Perform preprocessing
-        # 1. Downsample
-        # TODO: Proper scipy resampling
-        input_1 = input_1[:, ::downsampling, np.newaxis]
-        input_2 = input_2[:, ::downsampling, np.newaxis]
-        # print input_1.shape, input_2.shape
-        # TODO 2. Whiten
+        input_1, input_2 = preprocessor((input_1, input_2))
 
         pred = siamese.predict([input_1, input_2])
 
