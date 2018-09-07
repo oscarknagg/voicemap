@@ -23,7 +23,7 @@ model_embedding_dimension = 128
 training_set = ['train-clean-100', 'train-clean-360']
 validation_set = 'dev-clean'
 num_epochs = 25
-evaluate_every_n_batches = 1000
+evaluate_every_n_batches = 500
 num_evaluation_tasks = 500
 n_shot_classification = 1
 k_way_classification = 5
@@ -105,8 +105,8 @@ for n_epoch in range(num_epochs):
         query_sample, support_set_samples = valid_sequence.build_n_shot_task(
             k_way_classification, n_shot_classification)
 
-        input_1 = np.stack([query_sample[0]]*k_way_classification)
-        input_2 = support_set_samples[0]
+        input_1 = np.stack([query_sample[0]]*k_way_classification)[:, :, np.newaxis]
+        input_2 = support_set_samples[0][:, :, np.newaxis]
 
         # Perform preprocessing
         input_1, input_2 = whiten_downsample((input_1, input_2))
