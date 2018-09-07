@@ -159,7 +159,7 @@ class LibriSpeechDataset(Sequence):
 
         # Take only the instances not labels and stack to form a batch of pairs of instances from different speakers
         input_1_different = np.stack([self[i][0] for i in zip(*differing_pairs)[0]])
-        input_2_different = np.stack([self[i][0] for i in zip(*differing_pairs)[0]])
+        input_2_different = np.stack([self[i][0] for i in zip(*differing_pairs)[1]])
 
         input_1 = np.vstack([input_1_alike, input_1_different])[:, :, np.newaxis]
         input_2 = np.vstack([input_2_alike, input_2_different])[:, :, np.newaxis]
