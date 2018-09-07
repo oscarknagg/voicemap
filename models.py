@@ -42,6 +42,10 @@ def euclidean_distance(inputs):
     return distance
 
 
+def cosine_distance(inputs):
+    raise NotImplementedError
+
+
 def build_siamese_net(encoder, input_shape):
     input_1 = layers.Input(input_shape)
     input_2 = layers.Input(input_shape)
