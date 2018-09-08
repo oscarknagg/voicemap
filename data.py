@@ -119,8 +119,7 @@ class LibriSpeechDataset(Sequence):
         return len(self.df['speaker_id'].unique())
 
     def get_alike_pairs(self, num_pairs):
-        # This code block generates a DataFrame where each row
-        # contains a speaker ID and two dataset IDs from that speaker
+        """Generates a list of 2-tuples containing pairs of dataset IDs belonging to the same speaker."""
         alike_pairs = pd.merge(
             self.df.sample(num_pairs*2, weights='length'),
             self.df,
@@ -132,6 +131,7 @@ class LibriSpeechDataset(Sequence):
         return alike_pairs
 
     def get_differing_pairs(self, num_pairs):
+        """Generates a list of 2-tuples containing pairs of dataset IDs belonging to different speakers."""
         # First get a random sample from the dataset and then get a random sample from the remaining part of the dataset
         # that doesn't contain any speakers from the first random sample
         random_sample = self.df.sample(num_pairs, weights='length')
@@ -170,6 +170,12 @@ class LibriSpeechDataset(Sequence):
         outputs = np.append(np.zeros(batchsize/2), np.ones(batchsize/2))[:, np.newaxis]
 
         return [input_1, input_2], outputs
+
+    def yield_verification_batches(self, batchsize):
+        """Convenience function to yield verification batches forever."""
+        while True:
+            ([input_1, input_2], labels) = self.build_verification_batch(batchsize)
+            yield ([input_1, input_2], labels)
 
     def build_n_shot_task(self, k, n=1):
         """
