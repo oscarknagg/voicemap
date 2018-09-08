@@ -32,7 +32,8 @@ def evaluate_siamese_network(siamese, dataset, preprocessor, num_tasks, n, k):
         input_2 = support_set_samples[0][:, :, np.newaxis]
 
         # Perform preprocessing
-        input_1, input_2 = preprocessor((input_1, input_2))
+        # Pass an empty list to the labels parameter as preprocessor functions on batches not samples
+        ([input_1, input_2], _) = preprocessor(([input_1, input_2], []))
 
         pred = siamese.predict([input_1, input_2])
 
