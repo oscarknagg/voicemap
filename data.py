@@ -12,16 +12,17 @@ label_to_sex = {False: 'M', True: 'F'}
 
 
 class LibriSpeechDataset(Sequence):
+    """This class subclasses the Keras Sequence object. The __getitem__ function will return a raw audio sample and it's
+    label.
+
+    # Arguments
+        subsets: What LibriSpeech datasets to include.
+        seconds: Minimum length of audio to include in the dataset. Any files smaller than this will be ignored.
+        label: One of {speaker, sex}. Whether to use sex or speaker ID as a label.
+        stochastic: bool. If True then we will take a random fragment from each file of sufficient length. If False we
+        will always take a fragment starting at the beginning of a file.
+    """
     def __init__(self, subsets, seconds, label='speaker', stochastic=True, cache=True):
-        """
-        This class subclasses the torch Dataset object. The __getitem__ function will return a raw audio sample and it's
-        label.
-        :param subsets: What LibriSpeech datasets to use
-        :param seconds: Minimum length of audio to include in the dataset. Any files smaller than this will be ignored
-        :param label: Whether to use sex or speaker ID as a label
-        :param stochastic: If True then we will take a random fragment from each file of sufficient length. If False we
-        wil always take a fragment starting at the beginning of a file.
-        """
         assert isinstance(seconds, (int, long)), 'Length is not an integer!'
         assert label in ('sex', 'speaker'), 'Label type must be one of (\'sex\', \'speaker\')'
         self.subset = subsets

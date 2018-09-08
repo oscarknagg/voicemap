@@ -1,4 +1,6 @@
 import numpy as np
+from keras.callbacks import Callback
+from collections import OrderedDict
 
 
 def whiten(batch, rms=0.038021):
@@ -42,3 +44,77 @@ def evaluate_siamese_network(siamese, dataset, preprocessor, num_tasks, n, k):
             n_correct += 1
 
     return n_correct
+
+
+class NShotTaskEvaluationCallback(Callback):
+    """Evaluate the siamese network on n-shot classification tasks after every epoch.
+
+    Can also optionally log various metrics to CSV and save best model according to n-shot classification accuracy.
+
+    # Arguments
+        num_tasks: int. Number of n-shot classification tasks to evaluate the model with.
+        n_shot: int. Number of samples for each class in the n-shot classification tasks.
+        k_way: int. Number of classes in the n-shot classification tasks.
+        dataset: LibriSpeechDataset. The dataset to generate the n-shot classification tasks from.
+        preprocessor: function. The preprocessing function to apply to samples from the dataset.
+        log_metrics: bool. Whether to log metrics to a CSV file.
+        log_path: str. Location to save CSV log file.
+        save_best_model: bool. Whether to save the current best model.
+        model_path: str. Location to save best model.
+        verbose: bool. Whether to enable verbose printing
+    """
+    def __init__(self, num_tasks, n_shot, k_way, dataset, preprocessor=lambda x: x, log_metrics=True, log_path=None,
+                 save_best_model=True, model_path=None, verbose=True):
+        super(NShotTaskEvaluationCallback, self).__init__()
+        self.num_tasks = num_tasks
+        self.n_shot = n_shot
+        self.k_way = k_way
+        self.dataset = dataset
+        self.preprocessor = preprocessor
+        self.log_metrics = log_metrics
+        self.log_path = log_path
+        self.save_best_model = save_best_model
+        self.model_path = model_path
+        self.verbose = verbose
+
+        self.best_n_shot_acc = 0.
+
+    def on_epoch_end(self, epoch, logs=None):
+        logs = logs or {}
+
+        n_correct = evaluate_siamese_network(self.model, self.dataset, self.preprocessor, self.num_tasks, self.n_shot,
+                                             self.k_way)
+
+        n_shot_acc = n_correct * 1. / self.num_tasks
+        logs['val_{}-shot_acc'.format(self.n_shot)] = n_shot_acc
+
+        if self.verbose:
+            print 'val_{}-shot_acc = {:4f}'.format(self.n_shot, n_shot_acc)
+
+        if n_shot_acc > self.best_n_shot_acc:
+            self.best_n_shot_acc = n_shot_acc
+            if self.verbose:
+                print 'New best val_{}-shot_acc = {:4f}'.format(self.n_shot, n_shot_acc)
+
+            if self.save_best_model:
+                self.model.save(self.model_path, overwrite=True)
+
+        else:
+            if self.verbose:
+                print 'Best val_{}-shot_acc has not improved from {:4f}'.format(self.n_shot, self.best_n_shot_acc)
+
+        if self.log_metrics:
+            # First epoch, set keys and print header to file
+            if self.keys is None:
+                self.keys = sorted(logs.keys())
+
+                with open(self.model_path, 'a') as f:
+                    print >>f, ','.join(self.keys)
+
+            row_list = [epoch]
+            row_list += [logs[key] for key in self.keys]
+            with open(self.model_path, 'a') as f:
+                print >>f, ','.join(row_list)
+
+
+
