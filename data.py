@@ -115,6 +115,9 @@ class LibriSpeechDataset(Sequence):
     def __len__(self):
         return self.n_files
 
+    def num_classes(self):
+        return len(self.df['speaker_id'].unique())
+
     def get_alike_pairs(self, num_pairs):
         # This code block generates a DataFrame where each row
         # contains a speaker ID and two dataset IDs from that speaker
