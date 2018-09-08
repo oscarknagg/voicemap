@@ -77,15 +77,13 @@ class LibriSpeechDataset(Sequence):
 
         # Trim too-small files
         self.df = self.df[self.df['seconds'] > self.fragment_seconds]
-        self.n_files = len(self.df)
         self.unique_speakers = len(self.df['id'].unique())
 
         # Renaming for clarity
         self.df = self.df.rename(columns={'id': 'speaker_id', 'minutes': 'speaker_minutes'})
 
         # Index of dataframe has direct correspondence to item in dataset
-        self.df.reset_index(drop=True)
-        self.df.index = self.df.index - 1  # Pandas starts dataframe indexes from 1
+        self.df = self.df.reset_index(drop=True)
         self.df = self.df.assign(id=self.df.index.values)
 
         # Create dicts
@@ -93,7 +91,7 @@ class LibriSpeechDataset(Sequence):
         self.datasetid_to_speaker_id = self.df.to_dict()['speaker_id']
         self.datasetid_to_sex = self.df.to_dict()['sex']
 
-        print('Finished indexing data. {} usable files found.'.format(self.n_files))
+        print('Finished indexing data. {} usable files found.'.format(len(self)))
 
     def __getitem__(self, index):
         instance, samplerate = sf.read(self.datasetid_to_filepath[index])
@@ -114,7 +112,7 @@ class LibriSpeechDataset(Sequence):
         return instance, label
 
     def __len__(self):
-        return self.n_files
+        return len(self.df)
 
     def num_classes(self):
         return len(self.df['speaker_id'].unique())
