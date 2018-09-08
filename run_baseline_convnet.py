@@ -1,4 +1,3 @@
-import numpy as np
 import time
 import os
 from keras.optimizers import Adam
@@ -9,6 +8,7 @@ from data import LibriSpeechDataset
 from config import LIBRISPEECH_SAMPLING_RATE
 
 
+# Mute excessively verbose Tensorflow output
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 
@@ -53,36 +53,26 @@ siamese.compile(loss='binary_crossentropy', optimizer=opt, metrics=['accuracy'])
 ###########################
 def preprocessor(downsampling, whitening=True):
     def preprocessor_(batch):
-        i_1, i_2 = batch
+        ([i_1, i_2], labels) = batch
         i_1 = i_1[:, ::downsampling, :]
         i_2 = i_2[:, ::downsampling, :]
         if whitening:
             i_1, i_2 = whiten(i_1), whiten(i_2)
 
-        return i_1, i_2
+        return [i_1, i_2], labels
 
     return preprocessor_
 
 
-def verification_batch_generator(sequence, batchsize, preprocessor=lambda x: x):
-    while True:
-        ([input_1, input_2], labels) = sequence.build_verification_batch(batchsize)
-
-        # Perform preprocessing
-        input_1, input_2 = preprocessor((input_1, input_2))
-
-        yield ([input_1, input_2], labels)
-
-
 whiten_downsample = preprocessor(downsampling, whitening=True)
-train_generator = verification_batch_generator(train_sequence, batchsize, preprocessor=whiten_downsample)
-valid_generator = verification_batch_generator(valid_sequence, batchsize, preprocessor=whiten_downsample)
+train_generator = (whiten_downsample(batch) for batch in train_sequence.yield_verification_batches(batchsize))
+valid_generator = (whiten_downsample(batch) for batch in valid_sequence.yield_verification_batches(batchsize))
+
 
 #################
 # Training Loop #
 #################
 t0 = time.time()
-
 print('\n[Batches, Seconds]')
 # TODO: Faster creation of verification batches in order to get 100% GPU usage
 for n_epoch in range(num_epochs):
@@ -97,8 +87,8 @@ for n_epoch in range(num_epochs):
         use_multiprocessing=True
     )
 
-    n_correct = evaluate_siamese_network(siamese, valid_sequence, whiten_downsample, num_evaluation_tasks, n_shot_classification,
-                                         k_way_classification)
+    n_correct = evaluate_siamese_network(siamese, valid_sequence, whiten_downsample, num_evaluation_tasks,
+                                         n_shot_classification, k_way_classification)
 
     print('[{:5d}, {:3f}] {:3f} val_oneshot_acc'.format(
         (n_epoch + 1) * evaluate_every_n_batches,
