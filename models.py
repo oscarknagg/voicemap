@@ -9,23 +9,23 @@ def get_baseline_convolutional_encoder(filters, embedding_dimension):
     # Initial conv
     encoder.add(layers.Conv1D(filters, 32, padding='same', activation='relu'))
     encoder.add(layers.BatchNormalization())
-    encoder.add(layers.SpatialDropout1D(0.1))
+    encoder.add(layers.SpatialDropout1D(0.05))
     encoder.add(layers.MaxPool1D())
 
     # Further convs
     encoder.add(layers.Conv1D(2*filters, 3, padding='same', activation='relu'))
     encoder.add(layers.BatchNormalization())
-    encoder.add(layers.SpatialDropout1D(0.1))
+    encoder.add(layers.SpatialDropout1D(0.05))
     encoder.add(layers.MaxPool1D())
 
     encoder.add(layers.Conv1D(3 * filters, 3, padding='same', activation='relu'))
     encoder.add(layers.BatchNormalization())
-    encoder.add(layers.SpatialDropout1D(0.1))
+    encoder.add(layers.SpatialDropout1D(0.05))
     encoder.add(layers.MaxPool1D())
 
     encoder.add(layers.Conv1D(4 * filters, 3, padding='same', activation='relu'))
     encoder.add(layers.BatchNormalization())
-    encoder.add(layers.SpatialDropout1D(0.1))
+    encoder.add(layers.SpatialDropout1D(0.05))
     encoder.add(layers.MaxPool1D())
 
     encoder.add(layers.GlobalMaxPool1D())

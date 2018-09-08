@@ -1,11 +1,12 @@
-import time
 import os
 from keras.optimizers import Adam
+from keras.callbacks import CSVLogger, ModelCheckpoint
+import multiprocessing
 
-from utils import whiten, evaluate_siamese_network
+from utils import whiten, NShotEvaluationCallback
 from models import get_baseline_convolutional_encoder, build_siamese_net
 from data import LibriSpeechDataset
-from config import LIBRISPEECH_SAMPLING_RATE
+from config import LIBRISPEECH_SAMPLING_RATE, PATH
 
 
 # Mute excessively verbose Tensorflow output
@@ -32,22 +33,6 @@ k_way_classification = 5
 input_length = int(LIBRISPEECH_SAMPLING_RATE * n_seconds / downsampling)
 
 
-###################
-# Create datasets #
-###################
-train_sequence = LibriSpeechDataset(training_set, n_seconds)
-valid_sequence = LibriSpeechDataset(validation_set, n_seconds, stochastic=False)
-
-
-################
-# Define model #
-################
-encoder = get_baseline_convolutional_encoder(model_n_filters, model_embedding_dimension)
-siamese = build_siamese_net(encoder, (input_length, 1))
-opt = Adam(clipnorm=1.)
-siamese.compile(loss='binary_crossentropy', optimizer=opt, metrics=['accuracy'])
-
-
 ###########################
 # Define helper functions #
 ###########################
@@ -65,33 +50,51 @@ def preprocessor(downsampling, whitening=True):
 
 
 whiten_downsample = preprocessor(downsampling, whitening=True)
+
+
+###################
+# Create datasets #
+###################
+train_sequence = LibriSpeechDataset(training_set, n_seconds)
+valid_sequence = LibriSpeechDataset(validation_set, n_seconds, stochastic=False)
 train_generator = (whiten_downsample(batch) for batch in train_sequence.yield_verification_batches(batchsize))
 valid_generator = (whiten_downsample(batch) for batch in valid_sequence.yield_verification_batches(batchsize))
+
+
+################
+# Define model #
+################
+encoder = get_baseline_convolutional_encoder(model_n_filters, model_embedding_dimension)
+siamese = build_siamese_net(encoder, (input_length, 1))
+opt = Adam(clipnorm=1.)
+siamese.compile(loss='binary_crossentropy', optimizer=opt, metrics=['accuracy'])
 
 
 #################
 # Training Loop #
 #################
-t0 = time.time()
-print('\n[Batches, Seconds]')
-# TODO: Faster creation of verification batches in order to get 100% GPU usage
-for n_epoch in range(num_epochs):
-    siamese.fit_generator(
-        generator=train_generator,
-        steps_per_epoch=evaluate_every_n_batches,
-        validation_data=valid_generator,
-        validation_steps=100,
-        epochs=n_epoch + 1,
-        workers=4,
-        initial_epoch=n_epoch,
-        use_multiprocessing=True
-    )
+siamese.fit_generator(
+    generator=train_generator,
+    steps_per_epoch=evaluate_every_n_batches,
+    validation_data=valid_generator,
+    validation_steps=100,
+    epochs=num_epochs,
+    workers=multiprocessing.cpu_count(),
+    use_multiprocessing=True,
+    callbacks=[
+        # First generate custom n-shot classification metric
+        NShotEvaluationCallback(
+            num_evaluation_tasks, n_shot_classification, k_way_classification, valid_sequence,
+            preprocessor=whiten_downsample,
+        ),
+        CSVLogger(PATH + '/logs/baseline_convnet.csv'),
+        ModelCheckpoint(
+            PATH + '/models/baseline_convnet.hdf5',
+            monitor='val_{}-shot_acc'.format(n_shot_classification),
+            mode='max',
+            save_best_only=True,
+            verbose=True
+        )
+    ]
 
-    n_correct = evaluate_siamese_network(siamese, valid_sequence, whiten_downsample, num_evaluation_tasks,
-                                         n_shot_classification, k_way_classification)
-
-    print('[{:5d}, {:3f}] {:3f} val_oneshot_acc'.format(
-        (n_epoch + 1) * evaluate_every_n_batches,
-        time.time() - t0,
-        n_correct * 1. / num_evaluation_tasks
-    ))
+)
