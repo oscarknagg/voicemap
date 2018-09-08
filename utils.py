@@ -47,7 +47,7 @@ def evaluate_siamese_network(siamese, dataset, preprocessor, num_tasks, n, k):
 
 
 class NShotEvaluationCallback(Callback):
-    """Evaluate the siamese network on n-shot classification tasks after every epoch.
+    """Evaluate a siamese network on n-shot classification tasks after every epoch.
 
     Can also optionally log various metrics to CSV and save best model according to n-shot classification accuracy.
 
@@ -75,3 +75,5 @@ class NShotEvaluationCallback(Callback):
 
         n_shot_acc = n_correct * 1. / self.num_tasks
         logs['val_{}-shot_acc'.format(self.n_shot)] = n_shot_acc
+
+        print 'val_{}-shot_acc: {:4f}'.format(self.n_shot, n_shot_acc)
