@@ -1,5 +1,6 @@
 import os
 from keras.optimizers import Adam
+from keras.utils import plot_model
 from keras.callbacks import CSVLogger, ModelCheckpoint
 import multiprocessing
 
@@ -51,6 +52,8 @@ encoder = get_baseline_convolutional_encoder(model_n_filters, model_embedding_di
 siamese = build_siamese_net(encoder, (input_length, 1))
 opt = Adam(clipnorm=1.)
 siamese.compile(loss='binary_crossentropy', optimizer=opt, metrics=['accuracy'])
+plot_model(siamese, show_shapes=True, to_file=PATH + '/plots/siamese.png')
+print siamese.summary()
 
 
 #################

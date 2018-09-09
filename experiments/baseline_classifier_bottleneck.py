@@ -119,7 +119,6 @@ print classifier.summary()
 #################
 classifier.fit_generator(
     generator=train_generator,
-    steps_per_epoch=evaluate_every_n_batches,
     epochs=num_epochs,
     workers=multiprocessing.cpu_count(),
     use_multiprocessing=True,
@@ -129,14 +128,14 @@ classifier.fit_generator(
             num_evaluation_tasks, n_shot_classification, k_way_classification, valid,
             preprocessor=batch_preprocessor, mode='classifier'
         ),
-        # # Then log and checkpoint
-        # CSVLogger(PATH + '/logs/baseline_classifier.csv'),
-        # ModelCheckpoint(
-        #     PATH + '/models/baseline_classifier.hdf5',
-        #     monitor='val_{}-shot_acc'.format(n_shot_classification),
-        #     mode='max',
-        #     save_best_only=True,
-        #     verbose=True
-        # )
+        # Then log and checkpoint
+        CSVLogger(PATH + '/logs/baseline_classifier.csv'),
+        ModelCheckpoint(
+            PATH + '/models/baseline_classifier.hdf5',
+            monitor='val_{}-shot_acc'.format(n_shot_classification),
+            mode='max',
+            save_best_only=True,
+            verbose=True
+        )
     ]
 )
