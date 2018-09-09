@@ -1,8 +1,20 @@
 import numpy as np
 from keras.callbacks import Callback
-from keras.layers import Input
-from keras.models import Model
+from tqdm import tqdm
 import keras.backend as K
+
+
+def get_bottleneck(classifier, samples):
+    """Ripped from https://stackoverflow.com/questions/41711190/keras-how-to-get-the-output-of-each-layer"""
+    inp = classifier.input  # input placeholder
+    outputs = [layer.output for layer in classifier.layers]  # all layer outputs
+    functor = K.function([inp] + [K.learning_phase()], outputs)  # evaluation function
+
+    # Get activations
+    layer_outs = functor([samples, 0.])
+
+    # Return bottleneck only
+    return layer_outs[-2]
 
 
 def preprocess_instances(downsampling, whitening=True):
@@ -95,7 +107,7 @@ def evaluate_siamese_network(siamese, dataset, preprocessor, num_tasks, n, k):
 
     # TODO: Faster/multiprocessing creation of tasks
     n_correct = 0
-    for i_eval in range(num_tasks):
+    for i_eval in tqdm(range(num_tasks)):
         query_sample, support_set_samples = dataset.build_n_shot_task(k, n)
 
         input_1 = np.stack([query_sample[0]] * k)[:, :, np.newaxis]
@@ -123,34 +135,30 @@ def evaluate_classification_network(model, dataset, preprocessor, num_tasks, n, 
     if n != 1:
         raise NotImplementedError
 
-    # Create "encoder" network from using the activations from the penultimate layer
-    inputs = Input(shape=(12000, 1))
-    encoder = Model(inputs=inputs, outputs=model.layers[-2](inputs))
-
     n_correct = 0
-    for i_eval in range(num_tasks):
+    for i_eval in tqdm(range(num_tasks)):
         query_sample, support_set_samples = dataset.build_n_shot_task(k, n)
 
-        query_instance = query_sample[0][:, :, np.newaxis]
-        support_set_instances = support_set_samples[0][:, :, np.newaxis]
+        query_sample = (np.array([query_sample[0]])[:, :, np.newaxis], np.array([query_sample[1]])[:, np.newaxis])
+        support_set_samples = (
+            support_set_samples[0][:, :, np.newaxis],
+            support_set_samples[1][:, np.newaxis]
+        )
 
-        raise NotImplementedError
-        # # Perform preprocessing
-        # # Pass an empty list to the labels parameter as preprocessor functions on batches not samples
-        # ([input_1, input_2], _) = preprocessor(([input_1, input_2], []))
+        # Perform preprocessing
+        query_instance = preprocessor.instance_preprocessor(query_sample[0])
+        support_set_instances = preprocessor.instance_preprocessor(support_set_samples[0])
 
         # Get bottleneck activations for query and support set
-        query_embedding = encoder(query_instance)
-        support_set_embeddings = encoder(support_set_instances)
+        query_embedding = get_bottleneck(model, query_instance)
+        support_set_embeddings = get_bottleneck(model, support_set_instances)
 
-        # Get euclidena distances between embeddings
-        pred = np.linalg.norm(np.concatenate([query_embedding] * k) - support_set_embeddings)
+        # Get euclidean distances between embeddings
+        pred = np.sqrt(np.power((np.concatenate([query_embedding] * k) - support_set_embeddings), 2).sum(axis=1))
 
-        if np.argmin(pred[:, 0]) == 0:
+        if np.argmin(pred) == 0:
             # 0 is the correct result as by the function definition
             n_correct += 1
-
-        raise NotImplementedError
 
     return n_correct
 
@@ -167,8 +175,9 @@ class NShotEvaluationCallback(Callback):
         dataset: LibriSpeechDataset. The dataset to generate the n-shot classification tasks from.
         preprocessor: function. The preprocessing function to apply to samples from the dataset.
         verbose: bool. Whether to enable verbose printing
+        mode: str. One of {siamese, classifier}
     """
-    def __init__(self, num_tasks, n_shot, k_way, dataset, preprocessor=lambda x: x):
+    def __init__(self, num_tasks, n_shot, k_way, dataset, preprocessor=lambda x: x, mode='siamese'):
         super(NShotEvaluationCallback, self).__init__()
         self.num_tasks = num_tasks
         self.n_shot = n_shot
@@ -176,11 +185,14 @@ class NShotEvaluationCallback(Callback):
         self.dataset = dataset
         self.preprocessor = preprocessor
 
+        assert mode in ('siamese', 'classifier')
+        self.mode = mode
+        self.evaluator = evaluate_siamese_network if mode == 'siamese' else evaluate_classification_network
+
     def on_epoch_end(self, epoch, logs=None):
         logs = logs or {}
 
-        n_correct = evaluate_siamese_network(self.model, self.dataset, self.preprocessor, self.num_tasks, self.n_shot,
-                                             self.k_way)
+        n_correct = self.evaluator(self.model, self.dataset, self.preprocessor, self.num_tasks, self.n_shot, self.k_way)
 
         n_shot_acc = n_correct * 1. / self.num_tasks
         logs['val_{}-shot_acc'.format(self.n_shot)] = n_shot_acc

@@ -3,11 +3,17 @@ from keras import layers
 import keras.backend as K
 
 
-def get_baseline_convolutional_encoder(filters, embedding_dimension):
+def get_baseline_convolutional_encoder(filters, embedding_dimension, input_shape=None):
     encoder = Sequential()
 
     # Initial conv
-    encoder.add(layers.Conv1D(filters, 32, padding='same', activation='relu'))
+    if input_shape is None:
+        # In this case we are using the encoder as part of a siamese network and the input shape will be determined
+        # automatically based on the input shape of the siamese network
+        encoder.add(layers.Conv1D(filters, 32, padding='same', activation='relu'))
+    else:
+        # In this case we are using the encoder to build a classifier network and the input shape must be defined
+        encoder.add(layers.Conv1D(filters, 32, padding='same', activation='relu', input_shape=input_shape))
     encoder.add(layers.BatchNormalization())
     encoder.add(layers.SpatialDropout1D(0.05))
     encoder.add(layers.MaxPool1D())
