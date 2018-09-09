@@ -1,6 +1,74 @@
 import numpy as np
 from keras.callbacks import Callback
-from collections import OrderedDict
+from keras.layers import Input
+from keras.models import Model
+import keras.backend as K
+
+
+def preprocess_instances(downsampling, whitening=True):
+    """This is the canonical preprocessing function for this project.
+
+    1. Downsampling audio segments to desired sampling rate
+    2. Whiten audio segments to 0 mean and fixed RMS (aka volume)
+    """
+    def preprocess_instances_(instances):
+        instances = instances[:, ::downsampling, :]
+        if whitening:
+            instances = whiten(instances)
+        return instances
+
+    return preprocess_instances_
+
+
+class BatchPreProcessor(object):
+    """Wrapper class for instance and label pre-processing.
+
+    This class implements a __call__ method that pre-process classifier-style batches (inputs, outputs) and siamese
+    network-style batches ([input_1, input_2], outputs) identically.
+
+    # Arguments
+        mode: str. One of {siamese, classifier)
+        instance_preprocessor: function. Pre-processing function to apply to input features of the batch.
+        target_preprocessor: function. Pre-processing function to apply to output labels of the batch.
+    """
+    def __init__(self, mode, instance_preprocessor, target_preprocessor=lambda x: x):
+        assert mode in ('siamese', 'classifier')
+        self.mode = mode
+        self.instance_preprocessor = instance_preprocessor
+        self.target_preprocessor = target_preprocessor
+
+    def __call__(self, batch):
+        """Pre-processes a batch of samples."""
+        if self.mode == 'siamese':
+            ([input_1, input_2], labels) = batch
+
+            input_1 = self.instance_preprocessor(input_1)
+            input_2 = self.instance_preprocessor(input_2)
+
+            labels = self.target_preprocessor(labels)
+
+            return [input_1, input_2], labels
+        elif self.mode == 'classifier':
+            instances, labels = batch
+
+            instances = self.instance_preprocessor(instances)
+
+            labels = self.target_preprocessor(labels)
+
+            return instances, labels
+        else:
+            raise ValueError
+
+
+def contrastive_loss(y_true, y_pred):
+    """Contrastive loss from Hadsell-et-al.'06
+    http://yann.lecun.com/exdb/publis/pdf/hadsell-chopra-lecun-06.pdf
+    """
+    margin = 1
+    return K.mean(
+        (1 - y_true) * K.square(y_pred) +
+        y_true * K.square(K.maximum(margin - y_pred, 0))
+    )
 
 
 def whiten(batch, rms=0.038021):
@@ -42,6 +110,47 @@ def evaluate_siamese_network(siamese, dataset, preprocessor, num_tasks, n, k):
         if np.argmin(pred[:, 0]) == 0:
             # 0 is the correct result as by the function definition
             n_correct += 1
+
+    return n_correct
+
+
+def evaluate_classification_network(model, dataset, preprocessor, num_tasks, n, k):
+    """Evaluate a classification network on  k-way, n-shot classification tasks generated from a particular dataset.
+
+    We will use euclidean distances between the activations of the penultimate "bottleneck" layer for each sample as the
+    similarity metric.
+    """
+    if n != 1:
+        raise NotImplementedError
+
+    # Create "encoder" network from using the activations from the penultimate layer
+    inputs = Input(shape=(12000, 1))
+    encoder = Model(inputs=inputs, outputs=model.layers[-2](inputs))
+
+    n_correct = 0
+    for i_eval in range(num_tasks):
+        query_sample, support_set_samples = dataset.build_n_shot_task(k, n)
+
+        query_instance = query_sample[0][:, :, np.newaxis]
+        support_set_instances = support_set_samples[0][:, :, np.newaxis]
+
+        raise NotImplementedError
+        # # Perform preprocessing
+        # # Pass an empty list to the labels parameter as preprocessor functions on batches not samples
+        # ([input_1, input_2], _) = preprocessor(([input_1, input_2], []))
+
+        # Get bottleneck activations for query and support set
+        query_embedding = encoder(query_instance)
+        support_set_embeddings = encoder(support_set_instances)
+
+        # Get euclidena distances between embeddings
+        pred = np.linalg.norm(np.concatenate([query_embedding] * k) - support_set_embeddings)
+
+        if np.argmin(pred[:, 0]) == 0:
+            # 0 is the correct result as by the function definition
+            n_correct += 1
+
+        raise NotImplementedError
 
     return n_correct
 

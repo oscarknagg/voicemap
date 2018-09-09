@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 
 from utils import whiten
-from data import LibriSpeechDataset
+from librispeech import LibriSpeechDataset
 from config import PATH
 
 

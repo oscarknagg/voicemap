@@ -3,9 +3,9 @@ from keras.optimizers import Adam
 from keras.callbacks import CSVLogger, ModelCheckpoint
 import multiprocessing
 
-from utils import whiten, NShotEvaluationCallback
+from utils import preprocess_instances, NShotEvaluationCallback, BatchPreProcessor
 from models import get_baseline_convolutional_encoder, build_siamese_net
-from data import LibriSpeechDataset
+from librispeech import LibriSpeechDataset
 from config import LIBRISPEECH_SAMPLING_RATE, PATH
 
 
@@ -33,32 +33,15 @@ k_way_classification = 5
 input_length = int(LIBRISPEECH_SAMPLING_RATE * n_seconds / downsampling)
 
 
-###########################
-# Define helper functions #
-###########################
-def preprocessor(downsampling, whitening=True):
-    def preprocessor_(batch):
-        ([i_1, i_2], labels) = batch
-        i_1 = i_1[:, ::downsampling, :]
-        i_2 = i_2[:, ::downsampling, :]
-        if whitening:
-            i_1, i_2 = whiten(i_1), whiten(i_2)
-
-        return [i_1, i_2], labels
-
-    return preprocessor_
-
-
-whiten_downsample = preprocessor(downsampling, whitening=True)
-
-
 ###################
 # Create datasets #
 ###################
 train = LibriSpeechDataset(training_set, n_seconds)
 valid = LibriSpeechDataset(validation_set, n_seconds, stochastic=False)
-train_generator = (whiten_downsample(batch) for batch in train.yield_verification_batches(batchsize))
-valid_generator = (whiten_downsample(batch) for batch in valid.yield_verification_batches(batchsize))
+
+batch_preprocessor = BatchPreProcessor('siamese', preprocess_instances(downsampling))
+train_generator = (batch_preprocessor(batch) for batch in train.yield_verification_batches(batchsize))
+valid_generator = (batch_preprocessor(batch) for batch in valid.yield_verification_batches(batchsize))
 
 
 ################
@@ -85,7 +68,7 @@ siamese.fit_generator(
         # First generate custom n-shot classification metric
         NShotEvaluationCallback(
             num_evaluation_tasks, n_shot_classification, k_way_classification, valid,
-            preprocessor=whiten_downsample,
+            preprocessor=batch_preprocessor,
         ),
         # Then log and checkpoint
         CSVLogger(PATH + '/logs/baseline_convnet.csv'),
@@ -97,5 +80,4 @@ siamese.fit_generator(
             verbose=True
         )
     ]
-
 )
