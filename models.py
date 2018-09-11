@@ -3,7 +3,7 @@ from keras import layers
 import keras.backend as K
 
 
-def get_baseline_convolutional_encoder(filters, embedding_dimension, input_shape=None):
+def get_baseline_convolutional_encoder(filters, embedding_dimension, input_shape=None, dropout=0.05):
     encoder = Sequential()
 
     # Initial conv
@@ -15,23 +15,23 @@ def get_baseline_convolutional_encoder(filters, embedding_dimension, input_shape
         # In this case we are using the encoder to build a classifier network and the input shape must be defined
         encoder.add(layers.Conv1D(filters, 32, padding='same', activation='relu', input_shape=input_shape))
     encoder.add(layers.BatchNormalization())
-    encoder.add(layers.SpatialDropout1D(0.05))
-    encoder.add(layers.MaxPool1D())
+    encoder.add(layers.SpatialDropout1D(dropout))
+    encoder.add(layers.MaxPool1D(4, 4))
 
     # Further convs
     encoder.add(layers.Conv1D(2*filters, 3, padding='same', activation='relu'))
     encoder.add(layers.BatchNormalization())
-    encoder.add(layers.SpatialDropout1D(0.05))
+    encoder.add(layers.SpatialDropout1D(dropout))
     encoder.add(layers.MaxPool1D())
 
     encoder.add(layers.Conv1D(3 * filters, 3, padding='same', activation='relu'))
     encoder.add(layers.BatchNormalization())
-    encoder.add(layers.SpatialDropout1D(0.05))
+    encoder.add(layers.SpatialDropout1D(dropout))
     encoder.add(layers.MaxPool1D())
 
     encoder.add(layers.Conv1D(4 * filters, 3, padding='same', activation='relu'))
     encoder.add(layers.BatchNormalization())
-    encoder.add(layers.SpatialDropout1D(0.05))
+    encoder.add(layers.SpatialDropout1D(dropout))
     encoder.add(layers.MaxPool1D())
 
     encoder.add(layers.GlobalMaxPool1D())
