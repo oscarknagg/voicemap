@@ -21,14 +21,18 @@ class LibriSpeechDataset(Sequence):
         label: One of {speaker, sex}. Whether to use sex or speaker ID as a label.
         stochastic: bool. If True then we will take a random fragment from each file of sufficient length. If False we
         will always take a fragment starting at the beginning of a file.
+        pad: bool. Whether or not to pad samples with 0s to get them to the desired length. If `stochastic` is True
+        then a random number of 0s will be appended/prepended to each side to pad the sequence to the desired length.
+        cache: bool. Whether or not to use the cached index file
     """
-    def __init__(self, subsets, seconds, label='speaker', stochastic=True, cache=True):
+    def __init__(self, subsets, seconds, label='speaker', stochastic=True, pad=False, cache=True):
         assert isinstance(seconds, (int, long)), 'Length is not an integer!'
         assert label in ('sex', 'speaker'), 'Label type must be one of (\'sex\', \'speaker\')'
         self.subset = subsets
         self.fragment_seconds = seconds
         self.fragment_length = int(seconds * LIBRISPEECH_SAMPLING_RATE)
         self.stochastic = stochastic
+        self.pad = pad
         self.label = label
 
         print('Initialising LibriSpeechDataset with minimum length = {}s and subsets = {}'.format(seconds, subsets))
@@ -76,7 +80,8 @@ class LibriSpeechDataset(Sequence):
             self.df[self.df['subset'] == s].to_csv(PATH + '/data/{}.index.csv'.format(s), index=False)
 
         # Trim too-small files
-        self.df = self.df[self.df['seconds'] > self.fragment_seconds]
+        if not self.pad:
+            self.df = self.df[self.df['seconds'] > self.fragment_seconds]
         self.unique_speakers = len(self.df['id'].unique())
 
         # Renaming for clarity
@@ -100,7 +105,25 @@ class LibriSpeechDataset(Sequence):
             fragment_start_index = np.random.randint(0, len(instance)-self.fragment_length)
         else:
             fragment_start_index = 0
+
         instance = instance[fragment_start_index:fragment_start_index+self.fragment_length]
+
+        # Check for required length and pad if necessary
+        if self.pad and len(instance) < self.fragment_length:
+            less_timesteps = self.fragment_length - len(instance)
+            if self.stochastic:
+                # Stochastic padding, ensure instance length == self.fragment_length by appending a random number of 0s
+                # before and the appropriate number of 0s after the instance
+                less_timesteps = self.fragment_length - len(instance)
+
+                before_len = np.random.randint(0, less_timesteps)
+                after_len = less_timesteps - before_len
+
+                instance = np.pad(instance, (before_len, after_len), 'constant')
+            else:
+                # Deterministic padding. Append 0s to reach self.fragment_length
+                instance = np.pad(instance, (0, less_timesteps), 'constant')
+
         if self.label == 'sex':
             sex = self.datasetid_to_sex[index]
             label = sex_to_label[sex]
