@@ -15,6 +15,8 @@ class LibriSpeechDataset(Sequence):
     """This class subclasses the Keras Sequence object. The __getitem__ function will return a raw audio sample and it's
     label.
 
+    This class also contains functionality to build verification tasks and n-shot, k-way classification tasks.
+
     # Arguments
         subsets: What LibriSpeech datasets to include.
         seconds: Minimum length of audio to include in the dataset. Any files smaller than this will be ignored.
@@ -26,7 +28,6 @@ class LibriSpeechDataset(Sequence):
         cache: bool. Whether or not to use the cached index file
     """
     def __init__(self, subsets, seconds, label='speaker', stochastic=True, pad=False, cache=True):
-        assert isinstance(seconds, (int, long)), 'Length is not an integer!'
         assert label in ('sex', 'speaker'), 'Label type must be one of (\'sex\', \'speaker\')'
         self.subset = subsets
         self.fragment_seconds = seconds
@@ -102,7 +103,7 @@ class LibriSpeechDataset(Sequence):
         instance, samplerate = sf.read(self.datasetid_to_filepath[index])
         # Choose a random sample of the file
         if self.stochastic:
-            fragment_start_index = np.random.randint(0, len(instance)-self.fragment_length)
+            fragment_start_index = np.random.randint(0, max(len(instance)-self.fragment_length, 1))
         else:
             fragment_start_index = 0
 

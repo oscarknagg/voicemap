@@ -3,8 +3,8 @@ import soundfile as sf
 import numpy as np
 import pandas as pd
 
-from utils import whiten
-from librispeech import LibriSpeechDataset
+from voicemap.utils import whiten
+from voicemap.librispeech import LibriSpeechDataset
 from config import PATH
 
 
@@ -59,6 +59,12 @@ class TestLibriSpeechDataset(unittest.TestCase):
             all(pd.value_counts(support_set_labels) == 5),
             'An n-shot task should contain n samples from each speaker.'
         )
+
+        # TODO: Write this test
+        # self.assertTrue(
+        #     False,
+        #     'Classes of support set samples should be arranged like: [class_1]*n + [class_2]*n + ... + [class_k]*n'
+        # )
 
 
 class TestWhitening(unittest.TestCase):

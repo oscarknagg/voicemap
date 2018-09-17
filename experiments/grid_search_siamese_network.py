@@ -4,9 +4,9 @@ from keras.callbacks import CSVLogger, ModelCheckpoint
 from itertools import product
 import multiprocessing
 
-from utils import preprocess_instances, NShotEvaluationCallback, BatchPreProcessor
-from models import get_baseline_convolutional_encoder, build_siamese_net
-from librispeech import LibriSpeechDataset
+from voicemap.utils import preprocess_instances, NShotEvaluationCallback, BatchPreProcessor
+from voicemap.models import get_baseline_convolutional_encoder, build_siamese_net
+from voicemap.librispeech import LibriSpeechDataset
 from config import LIBRISPEECH_SAMPLING_RATE, PATH
 
 

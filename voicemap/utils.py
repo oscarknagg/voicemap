@@ -101,7 +101,7 @@ def whiten(batch, rms=0.038021):
 
 def evaluate_siamese_network(siamese, dataset, preprocessor, num_tasks, n, k):
     """Evaluate a siamese network on k-way, n-shot classification tasks generated from a particular dataset."""
-    # Currently assumes 1 shot classification in evaluation loop
+    # Currently assumes 1 shot classification in evaluation task
     if n != 1:
         raise NotImplementedError
 
@@ -120,6 +120,40 @@ def evaluate_siamese_network(siamese, dataset, preprocessor, num_tasks, n, k):
         pred = siamese.predict([input_1, input_2])
 
         if np.argmin(pred[:, 0]) == 0:
+            # 0 is the correct result as by the function definition
+            n_correct += 1
+
+    return n_correct
+
+
+def evaluate_siamese_network_nshot(siamese, dataset, preprocessor, num_tasks, n, k):
+    encoder = siamese.layers[2]
+    encoder.build()
+
+    n_correct = 0
+    for i_eval in tqdm(range(num_tasks)):
+        query_sample, support_set_samples = dataset.build_n_shot_task(k, n)
+
+        # Perform preprocessing
+        query_instance = preprocessor.instance_preprocessor(query_sample[0])
+        support_set_instances = preprocessor.instance_preprocessor(support_set_samples[0])
+
+        query_embedding = encoder.predict(query_instance)
+        support_set_embeddings = encoder.predict(support_set_instances)
+
+        # Get mean position of support set embeddings
+        # Assumes a label structure like [class_1]*n + [class_2]*n + ... + [class_k] * n
+        # TODO: write a test for this
+        # TODO: replace for loop with np.ufunc.reduceat
+        mean_support_set_embeddings = []
+        for i in range(0, n*k, n):
+            mean_support_set_embeddings.append(support_set_embeddings[i:i+n, :].mean(axis=1))
+        mean_support_set_embeddings = np.stack(mean_support_set_embeddings)
+
+        # Get euclidean distances between mean embeddings
+        pred = np.sqrt(np.power((np.concatenate([query_embedding] * k) - mean_support_set_embeddings), 2).sum(axis=1))
+
+        if np.argmin(pred) == 0:
             # 0 is the correct result as by the function definition
             n_correct += 1
 

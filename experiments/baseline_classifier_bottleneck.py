@@ -7,9 +7,9 @@ from keras.utils import to_categorical, Sequence
 import numpy as np
 import multiprocessing
 
-from utils import BatchPreProcessor, preprocess_instances, NShotEvaluationCallback
-from models import get_baseline_convolutional_encoder
-from librispeech import LibriSpeechDataset
+from voicemap.utils import BatchPreProcessor, preprocess_instances, NShotEvaluationCallback
+from voicemap.models import get_baseline_convolutional_encoder
+from voicemap.librispeech import LibriSpeechDataset
 from config import LIBRISPEECH_SAMPLING_RATE, PATH
 
 
@@ -36,7 +36,7 @@ k_way_classification = 5
 # Derived parameters
 input_length = int(LIBRISPEECH_SAMPLING_RATE * n_seconds / downsampling)
 
-
+exit(0)
 ###################
 # Create datasets #
 ###################

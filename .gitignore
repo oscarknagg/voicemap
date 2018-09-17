@@ -105,4 +105,8 @@ venv.bak/
 
 # Project specific
 data/LibriSpeech/*
+data/*.csv
 .idea/*
+models/*
+logs/*
+plots/*
