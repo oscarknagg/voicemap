@@ -41,7 +41,7 @@ param_str = 'siamese__filters_{}__embed_{}__drop_{}__pad={}'.format(filters, emb
 # Create datasets #
 ###################
 train = LibriSpeechDataset(training_set, n_seconds, pad=pad)
-valid = LibriSpeechDataset(validation_set, n_seconds, stochastic=False)
+valid = LibriSpeechDataset(validation_set, n_seconds, stochastic=False, pad=pad)
 
 batch_preprocessor = BatchPreProcessor('siamese', preprocess_instances(downsampling))
 train_generator = (batch_preprocessor(batch) for batch in train.yield_verification_batches(batchsize))
@@ -52,7 +52,7 @@ valid_generator = (batch_preprocessor(batch) for batch in valid.yield_verificati
 # Define model #
 ################
 encoder = get_baseline_convolutional_encoder(filters, embedding_dimension, dropout=dropout)
-siamese = build_siamese_net(encoder, (input_length, 1))
+siamese = build_siamese_net(encoder, (input_length, 1), distance_metric='uniform_euclidean')
 opt = Adam(clipnorm=1.)
 siamese.compile(loss='binary_crossentropy', optimizer=opt, metrics=['accuracy'])
 plot_model(siamese, show_shapes=True, to_file=PATH + '/plots/siamese.png')

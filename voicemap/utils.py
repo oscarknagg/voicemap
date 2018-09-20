@@ -231,4 +231,4 @@ class NShotEvaluationCallback(Callback):
         n_shot_acc = n_correct * 1. / self.num_tasks
         logs['val_{}-shot_acc'.format(self.n_shot)] = n_shot_acc
 
-        print 'val_{}-shot_acc: {:4f}'.format(self.n_shot, n_shot_acc)
+        print 'val_{}-shot_acc: {:.4f}'.format(self.n_shot, n_shot_acc)

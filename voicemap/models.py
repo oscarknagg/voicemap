@@ -41,28 +41,40 @@ def get_baseline_convolutional_encoder(filters, embedding_dimension, input_shape
     return encoder
 
 
-def euclidean_distance(inputs):
-    assert len(inputs) == 2
-    distance = K.mean(K.square(inputs[0] - inputs[1]), axis=-1)
-    distance = K.expand_dims(distance, 1)
-    return distance
+def build_siamese_net(encoder, input_shape,  distance_metric='uniform_euclidean'):
+    assert distance_metric in ('uniform_euclidean', 'weighted_euclidean',
+                               'uniform_l1', 'weighted_l1',
+                               'dot_product', 'cosine_distance')
 
-
-def cosine_distance(inputs):
-    raise NotImplementedError
-
-
-def build_siamese_net(encoder, input_shape):
     input_1 = layers.Input(input_shape)
     input_2 = layers.Input(input_shape)
 
     encoded_1 = encoder(input_1)
     encoded_2 = encoder(input_2)
 
-    embedded_distance = layers.Subtract()([encoded_1, encoded_2])
-    embedded_distance = layers.Lambda(lambda x: K.abs(x))(embedded_distance)
-
-    output = layers.Dense(1, activation='sigmoid')(embedded_distance)
+    if distance_metric == 'weighted_l1':
+        # This is the distance metric used in the original one-shot paper
+        # https://www.cs.cmu.edu/~rsalakhu/papers/oneshot1.pdf
+        embedded_distance = layers.Subtract()([encoded_1, encoded_2])
+        embedded_distance = layers.Lambda(lambda x: K.abs(x))(embedded_distance)
+        output = layers.Dense(1, activation='sigmoid')(embedded_distance)
+    elif distance_metric == 'uniform_euclidean':
+        # Simpler, no bells-and-whistles euclidean distance
+        # Still apply a sigmoid activation on the euclidean distance however
+        embedded_distance = layers.Subtract(name='subtract_embeddings')([encoded_1, encoded_2])
+        # Sqrt of sum of squares
+        embedded_distance = layers.Lambda(
+            lambda x: K.sqrt(K.sum(K.square(x), axis=-1, keepdims=True)), name='euclidean_distance'
+        )(embedded_distance)
+        output = layers.Dense(1, activation='sigmoid')(embedded_distance)
+    elif distance_metric == 'cosine_distance':
+        raise NotImplementedError
+        # cosine_proximity = layers.Dot(axes=-1, normalize=True)([encoded_1, encoded_2])
+        # ones = layers.Input(tensor=K.ones_like(cosine_proximity))
+        # cosine_distance = layers.Subtract()([ones, cosine_proximity])
+        # output = layers.Dense(1, activation='sigmoid')(cosine_distance)
+    else:
+        raise NotImplementedError
 
     siamese = Model(inputs=[input_1, input_2], outputs=output)
 
