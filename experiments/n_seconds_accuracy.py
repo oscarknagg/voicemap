@@ -20,7 +20,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 # Parameters #
 ##############
 n_repeats = 3
-n_seconds = [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5]
+n_seconds = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]
 downsampling = 4
 batchsize = 64
 model_n_filters = 128
@@ -39,21 +39,24 @@ k_way_classification = 5
 # Training Loop #
 #################
 for fragment_length in n_seconds:
+    print '*' * 23
+    print '***** {:.1f} seconds *****'.format(fragment_length)
+    print '*' * 23
     input_length = int(LIBRISPEECH_SAMPLING_RATE * fragment_length / downsampling)
 
+    # Create datasets
+    train = LibriSpeechDataset(training_set, fragment_length, pad=True)
+    valid = LibriSpeechDataset(validation_set, fragment_length, stochastic=False, pad=True)
+
+    batch_preprocessor = BatchPreProcessor('siamese', preprocess_instances(downsampling))
+    train_generator = (batch_preprocessor(batch) for batch in train.yield_verification_batches(batchsize))
+    valid_generator = (batch_preprocessor(batch) for batch in valid.yield_verification_batches(batchsize))
+
     for repeat in range(n_repeats):
-        # Create datasets
-        train = LibriSpeechDataset(training_set, fragment_length, pad=True)
-        valid = LibriSpeechDataset(validation_set, fragment_length, stochastic=False, pad=True)
-
-        batch_preprocessor = BatchPreProcessor('siamese', preprocess_instances(downsampling))
-        train_generator = (batch_preprocessor(batch) for batch in train.yield_verification_batches(batchsize))
-        valid_generator = (batch_preprocessor(batch) for batch in valid.yield_verification_batches(batchsize))
-
         # Define model
         encoder = get_baseline_convolutional_encoder(model_n_filters, model_embedding_dimension, dropout=model_dropout)
-        siamese = build_siamese_net(encoder, (input_length, 1))
-        opt = Adam(clipnorm=1., decay=2e-5)
+        siamese = build_siamese_net(encoder, (input_length, 1), distance_metric='uniform_euclidean')
+        opt = Adam(clipnorm=1.)
         siamese.compile(loss='binary_crossentropy', optimizer=opt, metrics=['accuracy'])
 
         # Train

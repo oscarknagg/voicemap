@@ -14,7 +14,7 @@ any other version.
 #### Run tests
 
 ```
-python -m unittest tests
+python -m unittest tests.tests
 ```
 
 #### Data
