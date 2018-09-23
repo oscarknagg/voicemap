@@ -19,17 +19,17 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 ##############
 # Parameters #
 ##############
-n_repeats = 3
-n_seconds = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]
+n_repeats = 1
+n_seconds = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0]
 downsampling = 4
-batchsize = 64
+batchsize = 32
 model_n_filters = 128
 model_embedding_dimension = 64
 model_dropout = 0.0
 training_set = ['train-clean-100', 'train-clean-360']
 validation_set = 'dev-clean'
 num_epochs = 50
-evaluate_every_n_batches = 500
+evaluate_every_n_batches = 1000
 num_evaluation_tasks = 500
 n_shot_classification = 1
 k_way_classification = 5

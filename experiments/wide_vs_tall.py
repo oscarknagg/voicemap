@@ -38,11 +38,11 @@ n_shot_classification = 1
 k_way_classification = 5
 pad = True
 
-min_speakers = 16
+min_speakers = 32
 max_speakers = 800
 max_minutes = 25
 n_repeats = 1
-n_points = 25  # Number of wide vs tall points to sample
+n_points = 10  # Number of wide vs tall points to sample
 
 # Derived parameters
 input_length = int(LIBRISPEECH_SAMPLING_RATE * n_seconds / downsampling)
@@ -93,8 +93,10 @@ n_speakers = np.ceil(np.logspace(np.log(min_speakers), np.log(max_speakers), n_p
 for n in n_speakers:
     minutes_per_speaker = min_speakers*max_minutes*1./n
     seconds_per_speaker = minutes_per_speaker*60.
-    print '*' * 30
-    print '{} speakers, {} minutes per speaker'.format(n, min_speakers*max_minutes*1./n)
+    print '*' * 35
+    print '{} speakers, {:.2f} minutes per speaker'.format(n, min_speakers*max_minutes*1./n)
+    print '*' * 35
+
     reduced_train = create_reduced_dataset(train, n, seconds_per_speaker)
     train_generator = (batch_preprocessor(batch) for batch in train.yield_verification_batches(batchsize))
 
