@@ -1,10 +1,11 @@
-from config import PATH, LIBRISPEECH_SAMPLING_RATE
 from keras.utils import Sequence
 from tqdm import tqdm
 import soundfile as sf
 import pandas as pd
 import numpy as np
 import os
+
+from config import PATH, LIBRISPEECH_SAMPLING_RATE
 
 
 sex_to_label = {'M': False, 'F': True}

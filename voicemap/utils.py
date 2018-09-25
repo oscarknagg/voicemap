@@ -1,5 +1,6 @@
 import numpy as np
 from keras.callbacks import Callback
+from keras.models import clone_model
 from tqdm import tqdm
 import keras.backend as K
 
@@ -99,100 +100,66 @@ def whiten(batch, rms=0.038021):
     return whitened_batch
 
 
-def evaluate_siamese_network(siamese, dataset, preprocessor, num_tasks, n, k):
+def n_shot_task_evaluation(model, dataset, preprocessor, num_tasks, n, k, mode='siamese'):
     """Evaluate a siamese network on k-way, n-shot classification tasks generated from a particular dataset."""
-    # Currently assumes 1 shot classification in evaluation task
-    if n != 1:
-        raise NotImplementedError
-
     # TODO: Faster/multiprocessing creation of tasks
     n_correct = 0
-    for i_eval in tqdm(range(num_tasks)):
-        query_sample, support_set_samples = dataset.build_n_shot_task(k, n)
 
-        input_1 = np.stack([query_sample[0]] * k)[:, :, np.newaxis]
-        input_2 = support_set_samples[0][:, :, np.newaxis]
+    if n == 1 and mode == 'siamese':
+        # Directly use siamese network to get pairwise verficiation score, minimum is closest
+        for i_eval in tqdm(range(num_tasks)):
+            query_sample, support_set_samples = dataset.build_n_shot_task(k, n)
 
-        # Perform preprocessing
-        # Pass an empty list to the labels parameter as preprocessor functions on batches not samples
-        ([input_1, input_2], _) = preprocessor(([input_1, input_2], []))
+            input_1 = np.stack([query_sample[0]] * k)[:, :, np.newaxis]
+            input_2 = support_set_samples[0][:, :, np.newaxis]
 
-        pred = siamese.predict([input_1, input_2])
+            # Perform preprocessing
+            # Pass an empty list to the labels parameter as preprocessor functions on batches not samples
+            ([input_1, input_2], _) = preprocessor(([input_1, input_2], []))
 
-        if np.argmin(pred[:, 0]) == 0:
-            # 0 is the correct result as by the function definition
-            n_correct += 1
+            pred = model.predict([input_1, input_2])
 
-    return n_correct
+            if np.argmin(pred[:, 0]) == 0:
+                # 0 is the correct result as by the function definition
+                n_correct += 1
+    elif n > 1 or mode == 'classifier':
+        # Create encoder network from earlier layers
+        if mode == 'siamese':
+           encoder = model.layers[2]
+        elif mode == 'classifier':
+            encoder = clone_model(model)
+            encoder.set_weights(model.get_weights())
+            encoder.pop()
+        else:
+            raise(ValueError, 'mode must be one of (siamese, classifier)')
 
+        for i_eval in tqdm((range(num_tasks))):
+            query_sample, support_set_samples = dataset.build_n_shot_task(k, n)
 
-def evaluate_siamese_network_nshot(siamese, dataset, preprocessor, num_tasks, n, k):
-    encoder = siamese.layers[2]
-    encoder.build()
+            # Perform preprocessing
+            query_instance = preprocessor.instance_preprocessor(query_sample[0].reshape(1, -1, 1))
+            support_set_instances = preprocessor.instance_preprocessor(support_set_samples[0][:, :, np.newaxis])
 
-    n_correct = 0
-    for i_eval in tqdm(range(num_tasks)):
-        query_sample, support_set_samples = dataset.build_n_shot_task(k, n)
+            query_embedding = encoder.predict(query_instance)
+            support_set_embeddings = encoder.predict(support_set_instances)
 
-        # Perform preprocessing
-        query_instance = preprocessor.instance_preprocessor(query_sample[0])
-        support_set_instances = preprocessor.instance_preprocessor(support_set_samples[0])
+            # Get mean position of support set embeddings
+            # Assumes a label structure like [class_1]*n + [class_2]*n + ... + [class_k] * n
+            # TODO: replace for loop with np.ufunc.reduceat
+            mean_support_set_embeddings = []
+            for i in range(0, n * k, n):
+                mean_support_set_embeddings.append(support_set_embeddings[i:i + n, :].mean(axis=0))
+            mean_support_set_embeddings = np.stack(mean_support_set_embeddings)
 
-        query_embedding = encoder.predict(query_instance)
-        support_set_embeddings = encoder.predict(support_set_instances)
+            # Get euclidean distances between mean embeddings
+            pred = np.sqrt(
+                np.power((np.concatenate([query_embedding] * k) - mean_support_set_embeddings), 2).sum(axis=1))
 
-        # Get mean position of support set embeddings
-        # Assumes a label structure like [class_1]*n + [class_2]*n + ... + [class_k] * n
-        # TODO: write a test for this
-        # TODO: replace for loop with np.ufunc.reduceat
-        mean_support_set_embeddings = []
-        for i in range(0, n*k, n):
-            mean_support_set_embeddings.append(support_set_embeddings[i:i+n, :].mean(axis=1))
-        mean_support_set_embeddings = np.stack(mean_support_set_embeddings)
-
-        # Get euclidean distances between mean embeddings
-        pred = np.sqrt(np.power((np.concatenate([query_embedding] * k) - mean_support_set_embeddings), 2).sum(axis=1))
-
-        if np.argmin(pred) == 0:
-            # 0 is the correct result as by the function definition
-            n_correct += 1
-
-    return n_correct
-
-
-def evaluate_classification_network(model, dataset, preprocessor, num_tasks, n, k):
-    """Evaluate a classification network on  k-way, n-shot classification tasks generated from a particular dataset.
-
-    We will use euclidean distances between the activations of the penultimate "bottleneck" layer for each sample as the
-    similarity metric.
-    """
-    if n != 1:
-        raise NotImplementedError
-
-    n_correct = 0
-    for i_eval in tqdm(range(num_tasks)):
-        query_sample, support_set_samples = dataset.build_n_shot_task(k, n)
-
-        query_sample = (np.array([query_sample[0]])[:, :, np.newaxis], np.array([query_sample[1]])[:, np.newaxis])
-        support_set_samples = (
-            support_set_samples[0][:, :, np.newaxis],
-            support_set_samples[1][:, np.newaxis]
-        )
-
-        # Perform preprocessing
-        query_instance = preprocessor.instance_preprocessor(query_sample[0])
-        support_set_instances = preprocessor.instance_preprocessor(support_set_samples[0])
-
-        # Get bottleneck activations for query and support set
-        query_embedding = get_bottleneck(model, query_instance)
-        support_set_embeddings = get_bottleneck(model, support_set_instances)
-
-        # Get euclidean distances between embeddings
-        pred = np.sqrt(np.power((np.concatenate([query_embedding] * k) - support_set_embeddings), 2).sum(axis=1))
-
-        if np.argmin(pred) == 0:
-            # 0 is the correct result as by the function definition
-            n_correct += 1
+            if np.argmin(pred) == 0:
+                # 0 is the correct result as by the function definition
+                n_correct += 1
+    else:
+        raise(ValueError, "n must be >= 1")
 
     return n_correct
 
@@ -221,12 +188,13 @@ class NShotEvaluationCallback(Callback):
 
         assert mode in ('siamese', 'classifier')
         self.mode = mode
-        self.evaluator = evaluate_siamese_network if mode == 'siamese' else evaluate_classification_network
+        # self.evaluator = evaluate_siamese_network if mode == 'siamese' else evaluate_classification_network
 
     def on_epoch_end(self, epoch, logs=None):
         logs = logs or {}
 
-        n_correct = self.evaluator(self.model, self.dataset, self.preprocessor, self.num_tasks, self.n_shot, self.k_way)
+        n_correct = n_shot_task_evaluation(self.model, self.dataset, self.preprocessor, self.num_tasks, self.n_shot,
+                                           self.k_way, mode=self.mode)
 
         n_shot_acc = n_correct * 1. / self.num_tasks
         logs['val_{}-shot_acc'.format(self.n_shot)] = n_shot_acc

@@ -60,11 +60,12 @@ class TestLibriSpeechDataset(unittest.TestCase):
             'An n-shot task should contain n samples from each speaker.'
         )
 
-        # TODO: Write this test
-        # self.assertTrue(
-        #     False,
-        #     'Classes of support set samples should be arranged like: [class_1]*n + [class_2]*n + ... + [class_k]*n'
-        # )
+        for i in range(0, n * k, n):
+            support_set_classes_correct = np.all(support_set_labels[i:i + n] == support_set_labels[i])
+            self.assertTrue(
+                support_set_classes_correct,
+                'Classes of support set samples should be arranged like: [class_1]*n + [class_2]*n + ... + [class_k]*n'
+            )
 
 
 class TestWhitening(unittest.TestCase):

@@ -1,6 +1,6 @@
 import os
 from keras.optimizers import Adam
-from keras.callbacks import CSVLogger, ModelCheckpoint
+from keras.callbacks import CSVLogger, ModelCheckpoint, ReduceLROnPlateau
 from keras.layers import Dense
 from keras.utils import plot_model
 from keras.utils import to_categorical, Sequence
@@ -23,11 +23,13 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 n_seconds = 3
 downsampling = 4
 batchsize = 64
-model_n_filters = 32
-model_embedding_dimension = 128
+filters = 128
+embedding_dimension = 64
+dropout = 0.0
 training_set = ['train-clean-100', 'train-clean-360']
 validation_set = 'dev-clean'
-num_epochs = 25
+pad = True
+num_epochs = 50
 evaluate_every_n_batches = 500
 num_evaluation_tasks = 500
 n_shot_classification = 1
@@ -35,8 +37,9 @@ k_way_classification = 5
 
 # Derived parameters
 input_length = int(LIBRISPEECH_SAMPLING_RATE * n_seconds / downsampling)
+param_str = 'classifier__filters_{}__embed_{}__drop_{}__pad={}'.format(filters, embedding_dimension, dropout, pad)
 
-exit(0)
+
 ###################
 # Create datasets #
 ###################
@@ -49,7 +52,7 @@ speaker_id_mapping = {unique_speakers[i]: i for i in range(train.num_classes())}
 
 
 class BatchedSequence(Sequence):
-    """Convenience class """
+    """Convenience class"""
     def __init__(self, sequence, batch_preprocessor, batchsize):
         self.sequence = sequence
         self.batch_preprocessor = batch_preprocessor
@@ -104,7 +107,7 @@ train_generator = BatchedSequence(train, batch_preprocessor, batchsize)
 ################
 # Define model #
 ################
-classifier = get_baseline_convolutional_encoder(model_n_filters, model_embedding_dimension, (input_length, 1))
+classifier = get_baseline_convolutional_encoder(filters, embedding_dimension, (input_length, 1))
 # Add output classification layer
 classifier.add(Dense(train.num_classes(), activation='softmax'))
 
@@ -119,6 +122,9 @@ print classifier.summary()
 #################
 classifier.fit_generator(
     generator=train_generator,
+    # Twice as many batches as the siamese net but each batch has half the number of samples as the siamese receives two
+    # samples per input
+    steps_per_epoch=2*evaluate_every_n_batches,
     epochs=num_epochs,
     workers=multiprocessing.cpu_count(),
     use_multiprocessing=True,
@@ -129,13 +135,19 @@ classifier.fit_generator(
             preprocessor=batch_preprocessor, mode='classifier'
         ),
         # Then log and checkpoint
-        CSVLogger(PATH + '/logs/baseline_classifier.csv'),
+        CSVLogger(PATH + '/logs/{}.csv'.format(param_str)),
         ModelCheckpoint(
-            PATH + '/models/baseline_classifier.hdf5',
+            PATH + '/models/{}.hdf5'.format(param_str),
             monitor='val_{}-shot_acc'.format(n_shot_classification),
             mode='max',
             save_best_only=True,
             verbose=True
+        ),
+        ReduceLROnPlateau(
+            monitor='val_{}-shot_acc'.format(n_shot_classification),
+            mode='max',
+            verbose=1,
+            patience=5
         )
     ]
 )
