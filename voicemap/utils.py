@@ -2,6 +2,7 @@ import numpy as np
 from keras.callbacks import Callback
 from keras.models import clone_model
 from tqdm import tqdm
+from scipy.spatial.distance import cdist
 import keras.backend as K
 
 
@@ -100,12 +101,24 @@ def whiten(batch, rms=0.038021):
     return whitened_batch
 
 
-def n_shot_task_evaluation(model, dataset, preprocessor, num_tasks, n, k, mode='siamese'):
-    """Evaluate a siamese network on k-way, n-shot classification tasks generated from a particular dataset."""
+def n_shot_task_evaluation(model, dataset, preprocessor, num_tasks, n, k, network_type='siamese', distance='euclidean'):
+    """Evaluate a siamese network on k-way, n-shot classification tasks generated from a particular dataset.
+
+    # Arguments
+        model: Model to evaluate
+        dataset: Dataset (currently LibriSpeechDataset only) from which to build evaluation tasks
+        preprocessor: Preprocessing function to apply to samples
+        num_tasks: Number of tasks to evaluate with
+        n: Number of samples per class present in the support set
+        k: Number of classes present in the support set
+        network_type: Either 'siamese' or 'classifier'. This controls how to get the embedding function from the model
+        distance: Either 'euclidean' or 'cosine'. This controls how to combine the support set samples for n > 1 shot
+        tasks
+    """
     # TODO: Faster/multiprocessing creation of tasks
     n_correct = 0
 
-    if n == 1 and mode == 'siamese':
+    if n == 1 and network_type == 'siamese':
         # Directly use siamese network to get pairwise verficiation score, minimum is closest
         for i_eval in tqdm(range(num_tasks)):
             query_sample, support_set_samples = dataset.build_n_shot_task(k, n)
@@ -122,11 +135,11 @@ def n_shot_task_evaluation(model, dataset, preprocessor, num_tasks, n, k, mode='
             if np.argmin(pred[:, 0]) == 0:
                 # 0 is the correct result as by the function definition
                 n_correct += 1
-    elif n > 1 or mode == 'classifier':
+    elif n > 1 or network_type == 'classifier':
         # Create encoder network from earlier layers
-        if mode == 'siamese':
+        if network_type == 'siamese':
            encoder = model.layers[2]
-        elif mode == 'classifier':
+        elif network_type == 'classifier':
             encoder = clone_model(model)
             encoder.set_weights(model.get_weights())
             encoder.pop()
@@ -143,17 +156,56 @@ def n_shot_task_evaluation(model, dataset, preprocessor, num_tasks, n, k, mode='
             query_embedding = encoder.predict(query_instance)
             support_set_embeddings = encoder.predict(support_set_instances)
 
-            # Get mean position of support set embeddings
-            # Assumes a label structure like [class_1]*n + [class_2]*n + ... + [class_k] * n
-            # TODO: replace for loop with np.ufunc.reduceat
-            mean_support_set_embeddings = []
-            for i in range(0, n * k, n):
-                mean_support_set_embeddings.append(support_set_embeddings[i:i + n, :].mean(axis=0))
-            mean_support_set_embeddings = np.stack(mean_support_set_embeddings)
+            if distance == 'euclidean':
+                # Get mean position of support set embeddings
+                # Assumes a label structure like [class_1]*n + [class_2]*n + ... + [class_k]*n
+                # TODO: replace for loop with np.ufunc.reduceat
+                mean_support_set_embeddings = []
+                for i in range(0, n * k, n):
+                    mean_support_set_embeddings.append(support_set_embeddings[i:i + n, :].mean(axis=0))
+                mean_support_set_embeddings = np.stack(mean_support_set_embeddings)
 
-            # Get euclidean distances between mean embeddings
-            pred = np.sqrt(
-                np.power((np.concatenate([query_embedding] * k) - mean_support_set_embeddings), 2).sum(axis=1))
+                # Get euclidean distances between mean embeddings
+                pred = np.sqrt(
+                    np.power((np.concatenate([query_embedding] * k) - mean_support_set_embeddings), 2).sum(axis=1))
+            elif distance == 'cosine':
+                # Get "mean" position of support set embeddings. Do this by calculating the per-class mean angle
+                # Assumes a label structure like [class_1]*n + [class_2]*n + ... + [class_k]*n
+                magnitudes = np.linalg.norm(support_set_embeddings, axis=1, keepdims=True)
+                unit_vectors = support_set_embeddings / magnitudes
+                mean_support_set_unit_vectors = []
+                for i in range(0, n * k, n):
+                    mean_support_set_unit_vectors.append(unit_vectors[i:i + n, :].mean(axis=0))
+                    # mean_support_set_magnitudes.append(magnitudes[i:i + n].sum() / n)
+
+                mean_support_set_unit_vectors = np.stack(mean_support_set_unit_vectors)
+
+                # Get cosine distance between angular-mean embeddings
+                pred = cdist(query_embedding, mean_support_set_unit_vectors, 'cosine')
+            elif distance == 'dot_product':
+                # Get "mean" position of support set embeddings. Do this by calculating the per-class mean angle and
+                # magnitude.
+                # This is very similar to 'cosine' except in the case that two support set samples have the same angle,
+                # in which case the one with the larger magnitude will be preffered
+                # Assumes a label structure like [class_1]*n + [class_2]*n + ... + [class_k]*n
+                magnitudes = np.linalg.norm(support_set_embeddings, axis=1, keepdims=True)
+                unit_vectors = support_set_embeddings / magnitudes
+                mean_support_set_unit_vectors = []
+                mean_support_set_magnitudes = []
+                for i in range(0, n * k, n):
+                    mean_support_set_unit_vectors.append(unit_vectors[i:i + n, :].mean(axis=0))
+                    mean_support_set_magnitudes.append(magnitudes[i:i + n].sum() / n)
+
+                mean_support_set_unit_vectors = np.stack(mean_support_set_unit_vectors)
+                mean_support_set_magnitudes = np.vstack(mean_support_set_magnitudes)
+                mean_support_set_embeddings = mean_support_set_magnitudes * mean_support_set_unit_vectors
+
+                # Get dot product between mean embeddings
+                pred = np.dot(query_embedding[0, :][np.newaxis, :], mean_support_set_embeddings.T)
+                # As dot product is a kind of similarity let's make this a "distance" by flipping the sign
+                pred = -pred
+            else:
+                raise(ValueError, 'Distance must be in (euclidean, cosine, dot_product)')
 
             if np.argmin(pred) == 0:
                 # 0 is the correct result as by the function definition
@@ -166,8 +218,6 @@ def n_shot_task_evaluation(model, dataset, preprocessor, num_tasks, n, k, mode='
 
 class NShotEvaluationCallback(Callback):
     """Evaluate a siamese network on n-shot classification tasks after every epoch.
-
-    Can also optionally log various metrics to CSV and save best model according to n-shot classification accuracy.
 
     # Arguments
         num_tasks: int. Number of n-shot classification tasks to evaluate the model with.
@@ -194,7 +244,7 @@ class NShotEvaluationCallback(Callback):
         logs = logs or {}
 
         n_correct = n_shot_task_evaluation(self.model, self.dataset, self.preprocessor, self.num_tasks, self.n_shot,
-                                           self.k_way, mode=self.mode)
+                                           self.k_way, network_type=self.mode)
 
         n_shot_acc = n_correct * 1. / self.num_tasks
         logs['val_{}-shot_acc'.format(self.n_shot)] = n_shot_acc
