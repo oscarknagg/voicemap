@@ -10,8 +10,7 @@ import os
 
 from config import PATH
 from voicemap.librispeech import LibriSpeechDataset
-from voicemap.utils import BatchPreProcessor, preprocess_instances, n_shot_task_evaluation, \
-    evaluate_classification_network
+from voicemap.utils import BatchPreProcessor, preprocess_instances, n_shot_task_evaluation
 
 
 # Mute excessively verbose Tensorflow output
@@ -29,7 +28,8 @@ classifier_model_path = PATH + '/models/baseline_classifier.hdf5'
 k_way = range(2, 21, 1)
 n_shot = [1, 5]
 num_tasks = 1000
-results_path = PATH + '/logs/k-way_n-shot_accuracy_{}.csv'.format(validation_set)
+distance = 'dot_product'
+results_path = PATH + '/logs/k-way_n-shot_accuracy_{}_{}.csv'.format(validation_set, distance)
 
 
 ###################
@@ -51,17 +51,22 @@ with open(results_path, 'w') as f:
 results = []
 for k in k_way:
     for n in n_shot:
-        n_correct = n_shot_task_evaluation(siamese, valid, batch_preprocessor, num_tasks, n, k, mode='siamese')
+        n_correct = n_shot_task_evaluation(siamese, valid, batch_preprocessor, num_tasks, n, k,
+                                           network_type='siamese', distance=distance)
         result = {'method': 'siamese', 'n_correct': n_correct, 'n_tasks': num_tasks, 'n': n, 'k': k}
-        # print result
         results.append(result)
 
+        # Append to file because I wanna look at intermediate results
         with open(results_path, 'a') as f:
-            print >>f, '{},{},{},{},{}'.format('siamese',n_correct,num_tasks,n,k)
+            print >>f, '{},{},{},{},{}'.format('siamese', n_correct, num_tasks, n, k)
 
-        # Classifier bottleneck
-        n_correct = n_shot_task_evaluation(classifier, valid, batch_preprocessor, num_tasks, n, k, mode='classifier')
+        # Append to file because I wanna look at intermediate results
+        n_correct = n_shot_task_evaluation(classifier, valid, batch_preprocessor, num_tasks, n, k,
+                                           network_type='classifier', distance=distance)
         results.append({'method': 'bottleneck', 'n_correct': n_correct, 'n_tasks': num_tasks, 'n': n, 'k': k})
+
+        with open(results_path, 'a') as f:
+            print >>f, '{},{},{},{},{}'.format('classifier', n_correct, num_tasks, n, k)
 
 results = pd.DataFrame(results)
 results.to_csv(results_path, index=False)
