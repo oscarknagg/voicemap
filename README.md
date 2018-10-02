@@ -1,21 +1,21 @@
-# one-shot-speaker-identification
+# voicemap
 
-Identifying speakers with deep learning.
+This repository contains code to build deep learning models to identify
+different speakers based on audio samples containg their voice.
+
+The eventual aim is for this repository to become a pip-installable
+python package for quickly and easily performing speaker identification
+related tasks.
 
 ## Instructions
 #### Requirements
-Make a new virtualenv and install requirements from `requirements.txt` with
+Make a new virtualenv and install requirements from `requirements.txt`
+with the following command.
 ```
 pip install -r requirements.txt
 ```
-This project was written in Python 2.7.12 so I cannot guarantee it works on
-any other version.
-
-#### Run tests
-
-```
-python -m unittest tests.tests
-```
+This project was written in Python 2.7.12 so I cannot guarantee it works
+on any other version.
 
 #### Data
 Get training data here: http://www.openslr.org/12
@@ -23,7 +23,8 @@ Get training data here: http://www.openslr.org/12
 - train-clean-360.tar.gz
 - dev-clean.tar.gz
 
-Place the unzipped training data into the `data/` folder so the file structure is as follows:
+Place the unzipped training data into the `data/` folder so the file
+structure is as follows:
 ```
 data/
     LibriSpeech/
@@ -33,25 +34,24 @@ data/
         SPEAKERS.TXT
 ```
 
-Please use the `SPEAKERS.TXT` supplied in the repo as I've made a few corrections to the one found at openslr.org.
+Please use the `SPEAKERS.TXT` supplied in the repo as I've made a few
+corrections to the one found at openslr.org.
 
+#### Run tests
 
+This requires the LibriSpeech data.
+```
+python -m unittest tests.tests
+```
 
+## Contents
+### voicemap
+This package contains re-usable code for defining network architectures,
+interacting with datasets and many utility functions.
 
-# Notes
+### experiments
+This package contains experiments in the form of python scripts.
 
-### Datasets
-
-- LibriSpeech
-- Mozilla Common Voice
-- Google Audio Commands
-- Speakers in the wild
-- https://catalog.ldc.upenn.edu/LDC2017S06 (EXPENSIVE)
-- VoxCeleb https://arxiv.org/pdf/1706.08612.pdf
-
-### Papers
-
-https://www.cs.cmu.edu/~rsalakhu/papers/oneshot1.pdf
-https://www.danielpovey.com/files/2018_icassp_xvectors.pdf
-http://danielpovey.com/files/2015_asru_tdnn_ubm.pdf
-https://www.sri.com/sites/default/files/publications/final2c_the_2016_speakers_in_the_wild_speaker_recognition_evaluation_3.pdf
+### notebooks
+This folder contains Jupyter notebooks used for interactive
+visualisation and analysis.
