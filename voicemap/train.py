@@ -1,7 +1,7 @@
 from torch import nn
 from torch.utils.data import DataLoader
 
-from voicemap.callbacks import DefaultCallback, ProgbarLogger
+from voicemap.callbacks import DefaultCallback, ProgbarLogger, CallbackList
 
 
 def gradient_step(model, optimiser, loss_fn, batch, **kwargs):
@@ -25,17 +25,15 @@ def fit(model: nn.Module, optimiser, loss_fn, epochs: int, dataloader: DataLoade
     # Determine number of samples:
     num_batches = len(dataloader)
 
-    callbacks = [DefaultCallback(), ] + (callbacks or []) + [ProgbarLogger(num_batches), ]
+    callbacks = CallbackList([DefaultCallback(), ] + (callbacks or []) + [ProgbarLogger(num_batches), ])
 
     if verbose:
         print('Begin training...')
 
-    for cbk in callbacks:
-        cbk.on_train_begin()
+    callbacks.on_train_begin()
 
     for epoch in range(1, epochs+1):
-        for cbk in callbacks:
-            cbk.on_epoch_begin(epoch)
+        callbacks.on_epoch_begin(epoch)
 
         epoch_logs = {}
         for batch_index, batch in enumerate(dataloader):
@@ -43,24 +41,20 @@ def fit(model: nn.Module, optimiser, loss_fn, epochs: int, dataloader: DataLoade
             batch_logs['batch'] = batch_index
             batch_logs['size'] = dataloader.batch_size
 
-            for cbk in callbacks:
-                cbk.on_batch_begin(batch_index, batch_logs)
+            callbacks.on_batch_begin(batch_index, batch_logs)
 
             batch = prepare_batch(batch)
 
             loss = gradient_step(model, optimiser, loss_fn, batch)
             batch_logs['loss'] = loss
 
-            for cbk in callbacks:
-                cbk.on_batch_end(batch_index, batch_logs)
+            callbacks.on_batch_end(batch_index, batch_logs)
 
         # Run on epoch end
-        for cbk in callbacks:
-            cbk.on_epoch_end(epoch, epoch_logs)
+            callbacks.on_epoch_end(epoch, epoch_logs)
 
     # Run on train end
     if verbose:
         print('Finished.')
 
-    for cbk in callbacks:
-        cbk.on_train_end()
+    callbacks.on_train_end()
