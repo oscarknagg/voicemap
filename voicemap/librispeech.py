@@ -1,4 +1,4 @@
-from keras.utils import Sequence
+from torch.utils.data import Dataset
 from tqdm import tqdm
 import soundfile as sf
 import pandas as pd
@@ -12,15 +12,25 @@ sex_to_label = {'M': False, 'F': True}
 label_to_sex = {False: 'M', True: 'F'}
 
 
-class LibriSpeechDataset(Sequence):
-    """This class subclasses the Keras Sequence object. The __getitem__ function will return a raw audio sample and it's
-    label.
+def to_categorical(y, num_classes):
+    """Transforms an integer class label into a one-hot label (single integer to 1D vector)."""
+    if y >= num_classes:
+        raise(ValueError, 'Integer label is greater than the number of classes.')
+    one_hot = np.zeros(num_classes)
+    one_hot[y] = 1
+    return one_hot
+
+
+class LibriSpeechDataset(Dataset):
+    """This class subclasses the torch.utils.data.Dataset object. The __getitem__ function will return a raw audio
+    sample and it's label.
 
     This class also contains functionality to build verification tasks and n-shot, k-way classification tasks.
 
     # Arguments
         subsets: What LibriSpeech datasets to include.
         seconds: Minimum length of audio to include in the dataset. Any files smaller than this will be ignored.
+        downsampling:
         label: One of {speaker, sex}. Whether to use sex or speaker ID as a label.
         stochastic: bool. If True then we will take a random fragment from each file of sufficient length. If False we
         will always take a fragment starting at the beginning of a file.
@@ -28,10 +38,16 @@ class LibriSpeechDataset(Sequence):
         then a random number of 0s will be appended/prepended to each side to pad the sequence to the desired length.
         cache: bool. Whether or not to use the cached index file
     """
-    def __init__(self, subsets, seconds, label='speaker', stochastic=True, pad=False, cache=True):
-        assert label in ('sex', 'speaker'), 'Label type must be one of (\'sex\', \'speaker\')'
+    def __init__(self, subsets, seconds, downsampling, label='speaker', stochastic=True, pad=False, cache=True):
+        if label not in ('sex', 'speaker'):
+            raise(ValueError, 'Label type must be one of (\'sex\', \'speaker\')')
+
+        if int(seconds * LIBRISPEECH_SAMPLING_RATE) % downsampling != 0:
+            raise(ValueError, 'Down sampling must be an integer divisor of the fragment length.')
+
         self.subset = subsets
         self.fragment_seconds = seconds
+        self.downsampling = downsampling
         self.fragment_length = int(seconds * LIBRISPEECH_SAMPLING_RATE)
         self.stochastic = stochastic
         self.pad = pad
@@ -67,7 +83,7 @@ class LibriSpeechDataset(Sequence):
             )
 
             audio_files = []
-            for subset, found in found_cache.iteritems():
+            for subset, found in found_cache.items():
                 if not found:
                     audio_files += self.index_subset(subset)
 
@@ -97,6 +113,10 @@ class LibriSpeechDataset(Sequence):
         self.datasetid_to_filepath = self.df.to_dict()['filepath']
         self.datasetid_to_speaker_id = self.df.to_dict()['speaker_id']
         self.datasetid_to_sex = self.df.to_dict()['sex']
+
+        # Convert arbitrary integer labels of dataset to
+        self.unique_speakers = sorted(self.df['speaker_id'].unique())
+        self.speaker_id_mapping = {self.unique_speakers[i]: i for i in range(self.num_classes())}
 
         print('Finished indexing data. {} usable files found.'.format(len(self)))
 
@@ -131,8 +151,12 @@ class LibriSpeechDataset(Sequence):
             label = sex_to_label[sex]
         elif self.label == 'speaker':
             label = self.datasetid_to_speaker_id[index]
+            label = self.speaker_id_mapping[label]
         else:
             raise(ValueError, 'Label type must be one of (\'sex\', \'speaker\')'.format(self.label))
+
+        # Reindex to channels first format as supported by pytorch and downsample by desired amount
+        instance = instance[np.newaxis, ::self.downsampling]
 
         return instance, label
 
