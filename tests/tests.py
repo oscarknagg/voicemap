@@ -2,6 +2,7 @@ import unittest
 import soundfile as sf
 import numpy as np
 import pandas as pd
+import torch
 
 from voicemap.utils import whiten
 from voicemap.librispeech import LibriSpeechDataset
@@ -11,7 +12,7 @@ from config import PATH
 class TestLibriSpeechDataset(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.dataset = LibriSpeechDataset('dev-clean', 3)
+        cls.dataset = LibriSpeechDataset('dev-clean', 3, 4)
 
     def test_verification_batch(self):
         # I do not test the verification batch directly but I test the funcions that generate the dataset indexes
@@ -76,7 +77,7 @@ class TestWhitening(unittest.TestCase):
         test_data = np.stack([test_data]*2)
         test_data = test_data[:, :, np.newaxis]
 
-        whitened = whiten(test_data, desired_rms)
+        whitened = whiten(torch.from_numpy(test_data), desired_rms)
         # Mean correct
         self.assertTrue(
             np.isclose(whitened.mean().item(), 0),
@@ -85,6 +86,6 @@ class TestWhitening(unittest.TestCase):
 
         # RMS correct
         self.assertTrue(
-            np.isclose(np.sqrt(np.power(whitened[0,:], 2).mean()).item(), desired_rms),
+            np.isclose(np.sqrt(np.power(whitened[0, :], 2).mean()).item(), desired_rms),
             'Whitening should change RMS to desired value.'
         )
