@@ -71,5 +71,6 @@ fit(
     epochs=5,
     dataloader=train_loader,
     prepare_batch=prepare_batch,
-    callbacks=callbacks
+    callbacks=callbacks,
+    metrics=['categorical_accuracy']
 )
