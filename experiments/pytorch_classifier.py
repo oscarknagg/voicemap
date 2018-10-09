@@ -4,7 +4,8 @@ from sklearn.model_selection import train_test_split
 
 from voicemap.librispeech import LibriSpeechDataset
 from voicemap.models import get_classifier
-from voicemap.callbacks import CSVLogger
+from voicemap.callbacks import CSVLogger, ValidationMetrics
+from voicemap.train import fit
 from config import PATH
 
 
@@ -17,7 +18,7 @@ device = torch.device('cuda')
 ##############
 filters = 128
 embedding = 64
-batchsize = 96
+batchsize = 64
 n_seconds = 3
 downsampling = 4
 
@@ -47,9 +48,6 @@ model.to(device, dtype=torch.double)
 ############
 # Training #
 ############
-from voicemap.train import fit
-
-
 train_loader = DataLoader(train, batch_size=batchsize, num_workers=4, shuffle=True, drop_last=True)
 opt = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
 loss_fn = torch.nn.CrossEntropyLoss().cuda()
@@ -61,7 +59,10 @@ def prepare_batch(batch):
     return x.cuda(), y.long().cuda()
 
 
-callbacks = [CSVLogger(PATH + '/logs/pytorch.csv')]
+callbacks = [
+    ValidationMetrics(train_loader),
+    CSVLogger(PATH + '/logs/pytorch.csv'),
+]
 
 torch.backends.cudnn.benchmark = True
 fit(

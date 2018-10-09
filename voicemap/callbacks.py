@@ -1,9 +1,12 @@
 from tqdm import tqdm
 import numpy as np
+import torch
 from collections import OrderedDict, Iterable
 import os
 import csv
 import io
+
+from voicemap.metrics import NAMED_METRICS
 
 
 class CallbackList(object):
@@ -112,14 +115,14 @@ class Callback(object):
 
 
 class DefaultCallback(Callback):
-    """Records metrics over epochs."""
-    def __init__(self, running_metrics=None):
-        super(DefaultCallback, self).__init__()
-        self.running_metrics = ['loss'] + (running_metrics or [])
+    """Records metrics over epochs by averaging over each batch.
 
-    def on_batch_begin(self, batch, logs=None):
+    NB The metrics are calculated with a moving model
+    """
+    def on_epoch_begin(self, batch, logs=None):
         self.seen = 0
         self.totals = {}
+        self.metrics = ['loss'] + self.params['metrics']
 
     def on_batch_end(self, batch, logs=None):
         logs = logs or {}
@@ -134,7 +137,7 @@ class DefaultCallback(Callback):
 
     def on_epoch_end(self, epoch, logs=None):
         if logs is not None:
-            for k in self.running_metrics:
+            for k in self.metrics:
                 if k in self.totals:
                     # Make value available to next callbacks.
                     logs[k] = self.totals[k] / self.seen
@@ -174,7 +177,6 @@ class ProgressBarLogger(Callback):
             self.pbar.set_postfix(self.log_values)
 
     def on_epoch_end(self, epoch, logs=None):
-        logs = logs or {}
         if self.verbose:
             self.pbar.update(1)
             self.pbar.set_postfix(self.log_values)
@@ -251,3 +253,41 @@ class CSVLogger(Callback):
     def on_train_end(self, logs=None):
         self.csv_file.close()
         self.writer = None
+
+
+class ValidationMetrics(Callback):
+    def __init__(self, dataloader):
+        super(ValidationMetrics, self).__init__()
+        self.dataloader = dataloader
+
+    def on_train_begin(self, logs=None):
+        self.metrics = self.params['metrics']
+        self.prepare_batch = self.params['prepare_batch']
+        self.loss_fn = self.params['loss_fn']
+
+    def on_epoch_end(self, epoch, logs=None):
+        logs = logs or {}
+        self.seen = 0
+        self.totals = {}
+        self.model.eval()
+        with torch.no_grad():
+            for batch in self.dataloader:
+                x, y = self.prepare_batch(batch)
+                y_pred = self.model(x)
+
+                self.seen += x.shape[0]
+
+                if 'loss' in self.totals:
+                    self.totals['loss'] += self.loss_fn(y_pred, y).item() * x.shape[0]
+                else:
+                    self.totals['loss'] = self.loss_fn(y_pred, y).item() * x.shape[0]
+
+                for m in self.metrics:
+                    v = NAMED_METRICS[m](y, y_pred)
+                    if m in self.totals:
+                        self.totals[m] += v * x.shape[0]
+                    else:
+                        self.totals[m] = v * x.shape[0]
+
+        for m in ['loss'] + self.metrics:
+            logs['val_'+m] = self.totals[m] / self.seen
