@@ -283,7 +283,12 @@ class ValidationMetrics(Callback):
                     self.totals['loss'] = self.loss_fn(y_pred, y).item() * x.shape[0]
 
                 for m in self.metrics:
-                    v = NAMED_METRICS[m](y, y_pred)
+                    if isinstance(m, str):
+                        v = NAMED_METRICS[m](y, y_pred)
+                    else:
+                        # Assume metric is a callable function
+                        v = m(y, y_pred)
+
                     if m in self.totals:
                         self.totals[m] += v * x.shape[0]
                     else:

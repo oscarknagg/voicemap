@@ -20,6 +20,18 @@ def gradient_step(model, optimiser, loss_fn, x, y):
     return loss.item(), y_pred
 
 
+def batch_metrics(model, y_pred, y, metrics, batch_logs):
+    model.eval()
+    for m in metrics:
+        if isinstance(m, str):
+            batch_logs[m] = NAMED_METRICS[m](y, y_pred)
+        else:
+            # Assume metric is a callable function
+            batch_logs = m(y, y_pred)
+
+    return batch_logs
+
+
 def fit(model, optimiser, loss_fn, epochs: int, dataloader, prepare_batch, metrics=None, callbacks=None, verbose=True):
     # Determine number of samples:
     num_batches = len(dataloader)
@@ -55,9 +67,8 @@ def fit(model, optimiser, loss_fn, epochs: int, dataloader, prepare_batch, metri
             loss, y_pred = gradient_step(model, optimiser, loss_fn, x, y)
             batch_logs['loss'] = loss
 
-            model.eval()
-            for m in metrics:
-                batch_logs[m] = NAMED_METRICS[m](y, y_pred)
+            # Loops through all metrics
+            batch_logs = batch_metrics(model, y_pred, y, metrics, batch_logs)
 
             callbacks.on_batch_end(batch_index, batch_logs)
 
