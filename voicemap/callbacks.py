@@ -385,6 +385,8 @@ class ReduceLROnPlateau(Callback):
             self.wait += 1
             if self.wait >= self.patience:
                 self._reduce_lr(epoch)
+                self.cooldown_counter = self.cooldown
+                self.wait = 0
 
     def _reduce_lr(self, epoch):
         for i, param_group in enumerate(self.optimiser.param_groups):
