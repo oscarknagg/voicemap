@@ -45,7 +45,8 @@ def fit(model, optimiser, loss_fn, epochs: int, dataloader, prepare_batch, metri
         'verbose': verbose,
         'metrics': (metrics or []),
         'prepare_batch': prepare_batch,
-        'loss_fn': loss_fn
+        'loss_fn': loss_fn,
+        'optimiser': optimiser
     })
 
     if verbose:
