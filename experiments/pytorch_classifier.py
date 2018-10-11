@@ -5,8 +5,9 @@ import numpy as np
 
 from voicemap.librispeech import LibriSpeechDataset
 from voicemap.models import get_classifier
-from voicemap.callbacks import CSVLogger, ValidationMetrics
+from voicemap.callbacks import CSVLogger, ValidationMetrics, ReduceLROnPlateau
 from voicemap.train import fit
+from voicemap.utils import whiten
 from config import PATH
 
 
@@ -59,18 +60,20 @@ model.to(device, dtype=torch.double)
 # Training #
 ############
 train_loader = DataLoader(train, batch_size=batchsize, num_workers=4, shuffle=True, drop_last=True)
-opt = torch.optim.SGD(model.parameters(), lr=0.01, momentum=0.9)
+opt = torch.optim.SGD(model.parameters(), lr=0.05, momentum=0.9)
 loss_fn = torch.nn.CrossEntropyLoss().cuda()
 
 
 def prepare_batch(batch):
+    # Normalise inputs
     # Move to GPU and convert targets to int
     x, y = batch
-    return x.cuda(), y.long().cuda()
+    return whiten(x).cuda(), y.long().cuda()
 
 
 callbacks = [
     ValidationMetrics(train_loader),
+    ReduceLROnPlateau(monitor='val_categorical_accuracy', patience=5, verbose=True),
     CSVLogger(PATH + '/logs/pytorch_baseline_classifier.csv'),
 ]
 
@@ -79,7 +82,7 @@ fit(
     model,
     opt,
     loss_fn,
-    epochs=5,
+    epochs=30,
     dataloader=train_loader,
     prepare_batch=prepare_batch,
     callbacks=callbacks,
