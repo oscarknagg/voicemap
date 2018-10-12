@@ -75,7 +75,7 @@ class TestWhitening(unittest.TestCase):
 
         test_data, sample_rate = sf.read(PATH + '/data/LibriSpeech/dev-clean/84/121123/84-121123-0000.flac')
         test_data = np.stack([test_data]*2)
-        test_data = test_data[:, :, np.newaxis]
+        test_data = test_data[:, np.newaxis, :]
 
         whitened = whiten(torch.from_numpy(test_data), desired_rms)
         # Mean correct

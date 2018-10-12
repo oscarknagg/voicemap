@@ -60,6 +60,7 @@ model.to(device, dtype=torch.double)
 # Training #
 ############
 train_loader = DataLoader(train, batch_size=batchsize, num_workers=4, shuffle=True, drop_last=True)
+test_loader = DataLoader(test, batch_size=batchsize, num_workers=4, shuffle=True, drop_last=True)
 opt = torch.optim.SGD(model.parameters(), lr=0.05, momentum=0.9)
 loss_fn = torch.nn.CrossEntropyLoss().cuda()
 
@@ -72,17 +73,18 @@ def prepare_batch(batch):
 
 
 callbacks = [
-    ValidationMetrics(train_loader),
+    ValidationMetrics(test_loader),
     ReduceLROnPlateau(monitor='val_categorical_accuracy', patience=5, verbose=True),
     CSVLogger(PATH + '/logs/pytorch_baseline_classifier.csv'),
 ]
+
 
 torch.backends.cudnn.benchmark = True
 fit(
     model,
     opt,
     loss_fn,
-    epochs=30,
+    epochs=40,
     dataloader=train_loader,
     prepare_batch=prepare_batch,
     callbacks=callbacks,
