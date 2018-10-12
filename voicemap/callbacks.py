@@ -177,6 +177,12 @@ class ProgressBarLogger(Callback):
             self.pbar.set_postfix(self.log_values)
 
     def on_epoch_end(self, epoch, logs=None):
+        # Update log values
+        self.log_values = {}
+        for k in self.metrics:
+            if k in logs:
+                self.log_values[k] = logs[k]
+
         if self.verbose:
             self.pbar.update(1)
             self.pbar.set_postfix(self.log_values)
