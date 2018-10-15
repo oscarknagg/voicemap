@@ -5,7 +5,7 @@ import numpy as np
 
 from voicemap.librispeech import LibriSpeechDataset
 from voicemap.models import get_classifier
-from voicemap.callbacks import CSVLogger, ValidationMetrics, ReduceLROnPlateau
+from voicemap.callbacks import CSVLogger, ValidationMetrics, ReduceLROnPlateau, ModelCheckpoint
 from voicemap.train import fit
 from voicemap.utils import whiten
 from config import PATH
@@ -25,6 +25,8 @@ embedding = 64
 batchsize = 64
 n_seconds = 3
 downsampling = 4
+stochastic_train = True
+stochastic_test = False
 
 
 ###################
@@ -32,6 +34,7 @@ downsampling = 4
 ###################
 dataset = ['train-clean-100', 'train-clean-360']
 data = LibriSpeechDataset(dataset, n_seconds, downsampling, stochastic=False)
+data_stochastic = LibriSpeechDataset(dataset, n_seconds, downsampling, stochastic=True, pad=False)
 
 indices = range(len(data))
 speaker_ids = data.df['speaker_id'].values
@@ -45,8 +48,14 @@ gb = data.df.iloc[test_indices].groupby('speaker_id').agg({'seconds': 'sum'})
 print('TEST: {} unique speakers with {:.1f}+-{:.1f} seconds of audio each,'.format(
     len(gb), gb['seconds'].mean(), gb['seconds'].std()))
 
-train = torch.utils.data.Subset(data, train_indices)
-test = torch.utils.data.Subset(data, test_indices)
+if stochastic_train:
+    train = torch.utils.data.Subset(data_stochastic, train_indices)
+else:
+    train = torch.utils.data.Subset(data, train_indices)
+if stochastic_test:
+    test = torch.utils.data.Subset(data_stochastic, test_indices)
+else:
+    test = torch.utils.data.Subset(data, test_indices)
 
 
 ################
@@ -75,7 +84,9 @@ def prepare_batch(batch):
 callbacks = [
     ValidationMetrics(test_loader),
     ReduceLROnPlateau(monitor='val_categorical_accuracy', patience=5, verbose=True),
-    CSVLogger(PATH + '/logs/pytorch_baseline_classifier.csv'),
+    ModelCheckpoint(filepath=PATH + '/models/baseline_classifier_stochastic=True.torch',
+                    monitor='val_categorical_accuracy'),
+    CSVLogger(PATH + '/logs/pytorch_baseline_classifier_stoch_train_determ_test.csv'),
 ]
 
 
