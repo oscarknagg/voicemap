@@ -8,6 +8,7 @@ import csv
 import io
 
 from voicemap.metrics import NAMED_METRICS
+from voicemap.eval import evaluate
 
 
 class CallbackList(object):
@@ -262,10 +263,20 @@ class CSVLogger(Callback):
         self.writer = None
 
 
-class ValidationMetrics(Callback):
-    def __init__(self, dataloader):
-        super(ValidationMetrics, self).__init__()
+class EvaluateMetrics(Callback):
+    """Evaluates metrics on a dataset after every epoch.
+
+    # Argments
+        dataloader: torch.DataLoader of the dataset on which the model will be evaluated
+        prefix: Prefix to prepend to the names of the metrics when they is logged. Defaults to 'val_' but can be changed
+        if the model is to be evaluated on many datasets separately.
+        suffix: Suffix to append to the names of the metrics when they is logged.
+    """
+    def __init__(self, dataloader, prefix='val_', suffix=''):
+        super(EvaluateMetrics, self).__init__()
         self.dataloader = dataloader
+        self.prefix = prefix
+        self.suffix = suffix
 
     def on_train_begin(self, logs=None):
         self.metrics = self.params['metrics']
@@ -274,35 +285,9 @@ class ValidationMetrics(Callback):
 
     def on_epoch_end(self, epoch, logs=None):
         logs = logs or {}
-        self.seen = 0
-        self.totals = {}
-        self.model.eval()
-        with torch.no_grad():
-            for batch in self.dataloader:
-                x, y = self.prepare_batch(batch)
-                y_pred = self.model(x)
-
-                self.seen += x.shape[0]
-
-                if 'loss' in self.totals:
-                    self.totals['loss'] += self.loss_fn(y_pred, y).item() * x.shape[0]
-                else:
-                    self.totals['loss'] = self.loss_fn(y_pred, y).item() * x.shape[0]
-
-                for m in self.metrics:
-                    if isinstance(m, str):
-                        v = NAMED_METRICS[m](y, y_pred)
-                    else:
-                        # Assume metric is a callable function
-                        v = m(y, y_pred)
-
-                    if m in self.totals:
-                        self.totals[m] += v * x.shape[0]
-                    else:
-                        self.totals[m] = v * x.shape[0]
-
-        for m in ['loss'] + self.metrics:
-            logs['val_'+m] = self.totals[m] / self.seen
+        logs.update(
+            evaluate(self.model, self.dataloader, self.prepare_batch, self.metrics, self.loss_fn, self.prefix, self.suffix)
+        )
 
 
 class ReduceLROnPlateau(Callback):
