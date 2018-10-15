@@ -32,7 +32,25 @@ def batch_metrics(model, y_pred, y, metrics, batch_logs):
     return batch_logs
 
 
-def fit(model, optimiser, loss_fn, epochs: int, dataloader, prepare_batch, metrics=None, callbacks=None, verbose=True):
+def fit(model, optimiser, loss_fn, epochs, dataloader, prepare_batch, metrics=None, callbacks=None, verbose=True):
+    """Function to abstract away training loop.
+
+    The benefit of this function is that allows training scripts to be much more readable and allows for easy re-use of
+    common training functionality provided they are written as a subclass of voicemap.Callback (following the
+    Keras API).
+
+    # Arguments
+        model: Model to be fitted.
+        optimiser: Optimiser to determine parameter updates from loss
+        loss_fn: Loss function to be reduced
+        epochs: Number of epochs of fitting to be performed
+        dataloader: `torch.DataLoader` instance to fit the model to
+        prepare_batch: Function to perform any desired preprocessing
+        metrics: Optional list of metrics to evaluate the model with
+        callbacks: Additional functionality to incorporate into training such as logging metrics to csv, model
+            checkpointing, learning rate scheduling etc... See voicemap.callbacks for more.
+        verbose: All print output is muted if this argument is `False`
+    """
     # Determine number of samples:
     num_batches = len(dataloader)
     batch_size = dataloader.batch_size

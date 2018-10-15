@@ -5,7 +5,7 @@ import numpy as np
 
 from voicemap.librispeech import LibriSpeechDataset
 from voicemap.models import get_classifier
-from voicemap.callbacks import CSVLogger, ValidationMetrics, ReduceLROnPlateau, ModelCheckpoint
+from voicemap.callbacks import CSVLogger, EvaluateMetrics, ReduceLROnPlateau, ModelCheckpoint
 from voicemap.train import fit
 from voicemap.utils import whiten
 from config import PATH
@@ -82,7 +82,7 @@ def prepare_batch(batch):
 
 
 callbacks = [
-    ValidationMetrics(test_loader),
+    EvaluateMetrics(test_loader),
     ReduceLROnPlateau(monitor='val_categorical_accuracy', patience=5, verbose=True),
     ModelCheckpoint(filepath=PATH + '/models/baseline_classifier_stochastic=True.torch',
                     monitor='val_categorical_accuracy'),
