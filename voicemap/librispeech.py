@@ -242,6 +242,8 @@ class LibriSpeechDataset(Dataset):
 
         query = self.df.sample(1, weights='length')
         query_sample = self[query.index.values[0]]
+        # Add batch dimension
+        query_sample = (query_sample[0][np.newaxis, :, :], query_sample[1])
 
         is_query_speaker = self.df['speaker_id'] == query['speaker_id'].values[0]
         not_same_sample = self.df.index != query.index.values[0]

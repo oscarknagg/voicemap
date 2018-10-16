@@ -11,6 +11,16 @@ class GlobalMaxPool1d(nn.Module):
         return nn.functional.max_pool1d(input, kernel_size=input.size()[2:]).view(-1, input.size(1))
 
 
+class Bottleneck(nn.Module):
+    """Gets bottleneck features from an nn.Sequential classifier."""
+    def __init__(self, model):
+        super(Bottleneck, self).__init__()
+        self.bottleneck = nn.Sequential(*model[:-1])
+
+    def forward(self, x):
+        return self.bottleneck(x)
+
+
 def get_classifier(filters, embedding, num_classes):
     return nn.Sequential(
         nn.Conv1d(1, filters, 32, padding=1),
