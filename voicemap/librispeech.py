@@ -100,7 +100,7 @@ class LibriSpeechDataset(Dataset):
         # Trim too-small files
         if not self.pad:
             self.df = self.df[self.df['seconds'] > self.fragment_seconds]
-        self.unique_speakers = len(self.df['id'].unique())
+        self.num_speakers = len(self.df['id'].unique())
 
         # Renaming for clarity
         self.df = self.df.rename(columns={'id': 'speaker_id', 'minutes': 'speaker_minutes'})
@@ -114,7 +114,7 @@ class LibriSpeechDataset(Dataset):
         self.datasetid_to_speaker_id = self.df.to_dict()['speaker_id']
         self.datasetid_to_sex = self.df.to_dict()['sex']
 
-        # Convert arbitrary integer labels of dataset to
+        # Convert arbitrary integer labels of dataset to ordered 0-(num_speakers - 1) labels
         self.unique_speakers = sorted(self.df['speaker_id'].unique())
         self.speaker_id_mapping = {self.unique_speakers[i]: i for i in range(self.num_classes())}
 
@@ -234,7 +234,7 @@ class LibriSpeechDataset(Dataset):
         :param n: Number of audio samples to include from each speaker
         :return:
         """
-        if k >= self.unique_speakers:
+        if k >= self.num_speakers:
             raise(ValueError, 'k must be smaller than the number of unique speakers in this dataset!')
 
         if k <= 1:
