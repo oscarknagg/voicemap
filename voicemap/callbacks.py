@@ -492,7 +492,7 @@ class NShotTaskEvaluation(Callback):
         verbose: bool. Whether to enable verbose printing
         mode: str. One of {siamese, classifier}
     """
-    def __init__(self, num_tasks, n_shot, k_way, dataset, prepare_batch=lambda x: x, network_type='classifier',
+    def __init__(self, num_tasks, n_shot, k_way, dataset, prepare_batch, network_type='classifier',
                  prefix='val_', distance='euclidean'):
         super(NShotTaskEvaluation, self).__init__()
         self.num_tasks = num_tasks
