@@ -507,7 +507,7 @@ class NShotTaskEvaluation(Callback):
     def on_epoch_end(self, epoch, logs=None):
         logs = logs or {}
         logs[self.prefix + '{}-shot_k-way_acc'.format(self.n_shot, self.k_way)] = n_shot_k_way_evaluation(
-            model=self.params['model'],
+            model=self.model,
             dataset=self.dataset,
             prepare_batch=self.prepare_batch,
             num_tasks=self.num_tasks,
