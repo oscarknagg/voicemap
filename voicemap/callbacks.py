@@ -7,8 +7,7 @@ import os
 import csv
 import io
 
-from voicemap.metrics import NAMED_METRICS
-from voicemap.eval import evaluate
+from voicemap.eval import evaluate, n_shot_k_way_evaluation
 
 
 class CallbackList(object):
@@ -479,3 +478,41 @@ class ModelCheckpoint(Callback):
                 if self.verbose > 0:
                     print('\nEpoch %05d: saving model to %s' % (epoch + 1, filepath))
                 torch.save(self.model.state_dict(), filepath)
+
+
+class NShotTaskEvaluation(Callback):
+    """Evaluate a siamese network on n-shot, k-way classification tasks after every epoch.
+
+    # Arguments
+        num_tasks: int. Number of n-shot classification tasks to evaluate the model with.
+        n_shot: int. Number of samples for each class in the n-shot classification tasks.
+        k_way: int. Number of classes in the n-shot classification tasks.
+        dataset: LibriSpeechDataset. The dataset to generate the n-shot classification tasks from.
+        preprocessor: function. The preprocessing function to apply to samples from the dataset.
+        verbose: bool. Whether to enable verbose printing
+        mode: str. One of {siamese, classifier}
+    """
+    def __init__(self, num_tasks, n_shot, k_way, dataset, prepare_batch=lambda x: x, network_type='classifier',
+                 prefix='val_', distance='euclidean'):
+        super(NShotTaskEvaluation, self).__init__()
+        self.num_tasks = num_tasks
+        self.n_shot = n_shot
+        self.k_way = k_way
+        self.dataset = dataset
+        self.prepare_batch = prepare_batch
+        self.network_type = network_type
+        self.prefix = prefix
+        self.distance = distance
+
+    def on_epoch_end(self, epoch, logs=None):
+        logs = logs or {}
+        logs[self.prefix + '{}-shot_k-way_acc'.format(self.n_shot, self.k_way)] = n_shot_k_way_evaluation(
+            model=self.params['model'],
+            dataset=self.dataset,
+            prepare_batch=self.prepare_batch,
+            num_tasks=self.num_tasks,
+            n=self.n_shot,
+            k=self.k_way,
+            network_type=self.network_type,
+            distance=self.distance
+        )
