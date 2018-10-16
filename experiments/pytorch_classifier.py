@@ -5,7 +5,7 @@ import numpy as np
 
 from voicemap.librispeech import LibriSpeechDataset
 from voicemap.models import get_classifier
-from voicemap.callbacks import CSVLogger, EvaluateMetrics, ReduceLROnPlateau, ModelCheckpoint
+from voicemap.callbacks import CSVLogger, EvaluateMetrics, ReduceLROnPlateau, ModelCheckpoint, NShotTaskEvaluation
 from voicemap.train import fit
 from voicemap.utils import whiten
 from config import PATH
@@ -27,6 +27,11 @@ n_seconds = 3
 downsampling = 4
 stochastic_train = True
 stochastic_test = False
+test_fraction = 0.1
+# n-shot task params
+num_tasks = 500
+n_shot = 1
+k_way = 5
 
 
 ###################
@@ -36,9 +41,12 @@ dataset = ['train-clean-100', 'train-clean-360']
 data = LibriSpeechDataset(dataset, n_seconds, downsampling, stochastic=False)
 data_stochastic = LibriSpeechDataset(dataset, n_seconds, downsampling, stochastic=True, pad=False)
 
+unseen_speakers = LibriSpeechDataset('dev-clean', n_seconds, downsampling, stochastic=True, pad=False)
+
 indices = range(len(data))
 speaker_ids = data.df['speaker_id'].values
-train_indices, test_indices, _, _ = train_test_split(indices, speaker_ids, test_size=0.1, stratify=speaker_ids)
+train_indices, test_indices, _, _ = train_test_split(indices, speaker_ids, test_size=test_fraction,
+                                                     stratify=speaker_ids)
 
 gb = data.df.iloc[train_indices].groupby('speaker_id').agg({'seconds': 'sum'})
 print('TRAIN: {} unique speakers with {:.1f}+-{:.1f} seconds of audio each,'.format(
@@ -81,12 +89,20 @@ def prepare_batch(batch):
     return whiten(x).cuda(), y.long().cuda()
 
 
+def prepare_n_shot_batch(query, support):
+    query = torch.from_numpy(query[0]).to(device, dtype=torch.double)
+    support = torch.from_numpy(support[0]).to(device, dtype=torch.double)
+    return query, support
+
+
 callbacks = [
-    EvaluateMetrics(test_loader),
+    # EvaluateMetrics(test_loader),
+    NShotTaskEvaluation(num_tasks=num_tasks, n_shot=n_shot, k_way=k_way, dataset=unseen_speakers,
+                        prepare_batch=prepare_n_shot_batch),
     ReduceLROnPlateau(monitor='val_categorical_accuracy', patience=5, verbose=True),
     ModelCheckpoint(filepath=PATH + '/models/baseline_classifier_stochastic=True.torch',
                     monitor='val_categorical_accuracy'),
-    CSVLogger(PATH + '/logs/pytorch_baseline_classifier_stoch_train_determ_test.csv'),
+    CSVLogger(PATH + '/logs/pytorch_baseline_classifier_stoch_train.csv'),
 ]
 
 
