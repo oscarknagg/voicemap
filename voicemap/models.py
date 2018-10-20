@@ -11,6 +11,11 @@ class GlobalMaxPool1d(nn.Module):
         return nn.functional.max_pool1d(input, kernel_size=input.size()[2:]).view(-1, input.size(1))
 
 
+class GlobalAvgPool2d(nn.Module):
+    def forward(self, input):
+        return nn.functional.avg_pool2d(input, kernel_size=input.size()[2:]).view(-1, input.size(1))
+
+
 class Bottleneck(nn.Module):
     """Gets bottleneck features from an nn.Sequential classifier."""
     def __init__(self, model):
@@ -47,4 +52,32 @@ def get_classifier(filters, embedding, num_classes):
         nn.Linear(4 * filters, embedding),
 
         nn.Linear(embedding, num_classes),
+    )
+
+
+def get_omniglot_classifier(num_classes):
+    return nn.Sequential(
+        nn.Conv2d(1, 64, 3, padding=1),
+        nn.BatchNorm2d(64),
+        nn.ReLU(),
+        nn.MaxPool2d(kernel_size=2, stride=2),
+
+        nn.Conv2d(64, 64, 3, padding=1),
+        nn.BatchNorm2d(64),
+        nn.ReLU(),
+        nn.MaxPool2d(kernel_size=2, stride=2),
+
+        nn.Conv2d(64, 64, 3, padding=1),
+        nn.BatchNorm2d(64),
+        nn.ReLU(),
+        nn.MaxPool2d(kernel_size=2, stride=2),
+
+        nn.Conv2d(64, 64, 3, padding=1),
+        nn.BatchNorm2d(64),
+        nn.ReLU(),
+        nn.MaxPool2d(kernel_size=2, stride=2),
+
+        GlobalAvgPool2d(),
+
+        nn.Linear(64, num_classes)
     )

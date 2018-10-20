@@ -96,13 +96,17 @@ def prepare_n_shot_batch(query, support):
 
 
 callbacks = [
-    # EvaluateMetrics(test_loader),
+    EvaluateMetrics(test_loader),
+    # Evaluate n-shot tasks on seen classes
+    NShotTaskEvaluation(num_tasks=num_tasks, n_shot=n_shot, k_way=k_way, dataset=data_stochastic,
+                        prepare_batch=prepare_n_shot_batch, prefix=''),
+    # Evaluate n-shot on tasks on unseen classes
     NShotTaskEvaluation(num_tasks=num_tasks, n_shot=n_shot, k_way=k_way, dataset=unseen_speakers,
-                        prepare_batch=prepare_n_shot_batch),
-    ReduceLROnPlateau(monitor='val_categorical_accuracy', patience=5, verbose=True),
-    ModelCheckpoint(filepath=PATH + '/models/baseline_classifier_stochastic=True.torch',
+                        prepare_batch=prepare_n_shot_batch, prefix='test_'),
+    ReduceLROnPlateau(monitor='val_categorical_accuracy', patience=5, verbose=True, min_delta=0.005),
+    ModelCheckpoint(filepath=PATH + '/models/baseline_classifier_stochastic=True_r=1.torch',
                     monitor='val_categorical_accuracy'),
-    CSVLogger(PATH + '/logs/pytorch_baseline_classifier_stoch_train.csv'),
+    CSVLogger(PATH + '/logs/baseline_classifier_stochastic=True_r=1.csv'),
 ]
 
 
@@ -111,7 +115,7 @@ fit(
     model,
     opt,
     loss_fn,
-    epochs=40,
+    epochs=50,
     dataloader=train_loader,
     prepare_batch=prepare_batch,
     callbacks=callbacks,
