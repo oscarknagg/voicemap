@@ -15,7 +15,7 @@ def whiten(batch, rms=0.038021):
     whitened_batch = batch - sample_wise_mean.repeat([1, 1, batch.shape[2]]).transpose(dim0=1, dim1=0)
 
     # Divide through
-    rescaling_factor = rms / torch.sqrt(torch.mul(batch, batch).mean(dim=2))
+    rescaling_factor = rms / (torch.sqrt(torch.mul(batch, batch).mean(dim=2)) + 1e-8)
     whitened_batch = whitened_batch*rescaling_factor.repeat([1, 1, batch.shape[2]]).transpose(dim0=1, dim1=0)
 
     return whitened_batch
