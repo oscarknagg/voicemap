@@ -308,7 +308,7 @@ class LibriSpeechDataset(Dataset):
         return audio_files
 
 
-class OmngiglotDataset(Dataset):
+class OmniglotDataset(Dataset):
     def __init__(self, subset):
         if subset not in ('background', 'evaluation'):
             raise(ValueError, 'subset must be one of (background, evaluation)')
@@ -331,7 +331,7 @@ class OmngiglotDataset(Dataset):
     def __getitem__(self, item):
         instance = io.imread(self.datasetid_to_filepath[item])
         # Reindex to channels first format as supported by pytorch
-        instance = instance[np.newaxis, : , :]
+        instance = instance[np.newaxis, :, :]
 
         # Normalise to 0-1
         instance = (instance - instance.min()) / (instance.max() - instance.min())
@@ -345,6 +345,45 @@ class OmngiglotDataset(Dataset):
 
     def num_classes(self):
         return len(self.df['class_name'].unique())
+
+    def build_n_shot_task(self, k, n=1):
+        """
+        This method builds a k-way n-shot classification task. It returns a support set of n audio samples each from k
+        unique speakers. In addition it will return a query sample. Downstream models will attempt to match the query
+        sample to the correct samples in the support set.
+        :param k: Number of unique speakers to include in this task
+        :param n: Number of audio samples to include from each speaker
+        :return:
+        """
+        if k >= self.num_classes():
+            raise(ValueError, 'k must be smaller than the number of unique speakers in this dataset!')
+
+        if k <= 1:
+            raise(ValueError, 'k must be greater than or equal to one!')
+
+        query = self.df.sample(1)
+        query_sample = self[query.index.values[0]]
+        # Add batch dimension
+        query_sample = (query_sample[0][np.newaxis, :, :], query_sample[1])
+
+        is_query_character = self.df['class_id'] == query['class_id'].values[0]
+        not_same_sample = self.df.index != query.index.values[0]
+        correct_samples = self.df[is_query_character & not_same_sample].sample(n)
+
+        # Sample k-1 speakers
+        other_support_set_characters = np.random.choice(
+            self.df[~is_query_character]['class_id'].unique(), k-1, replace=False)
+
+        other_support_samples = []
+        for i in range(k-1):
+            is_same_speaker = self.df['class_id'] == other_support_set_characters[i]
+            other_support_samples.append(
+                self.df[~is_query_character & is_same_speaker].sample(n)
+            )
+        support_set = pd.concat([correct_samples]+other_support_samples)
+        support_set_samples = tuple(np.stack(i) for i in zip(*[self[i] for i in support_set.index]))
+
+        return query_sample, support_set_samples
 
     @staticmethod
     def index_subset(subset):
