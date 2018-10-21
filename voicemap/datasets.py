@@ -346,13 +346,14 @@ class OmniglotDataset(Dataset):
     def num_classes(self):
         return len(self.df['class_name'].unique())
 
-    def build_n_shot_task(self, k, n=1):
+    def build_n_shot_task(self, k, n=1, query=1):
         """
         This method builds a k-way n-shot classification task. It returns a support set of n audio samples each from k
         unique speakers. In addition it will return a query sample. Downstream models will attempt to match the query
         sample to the correct samples in the support set.
         :param k: Number of unique speakers to include in this task
         :param n: Number of audio samples to include from each speaker
+        :param query: Number of query samples
         :return:
         """
         if k >= self.num_classes():
@@ -361,14 +362,14 @@ class OmniglotDataset(Dataset):
         if k <= 1:
             raise(ValueError, 'k must be greater than or equal to one!')
 
-        query = self.df.sample(1)
-        query_sample = self[query.index.values[0]]
+        query = self.df.sample(query)
+        query_samples = self[query['id'].values[0]]
         # Add batch dimension
-        query_sample = (query_sample[0][np.newaxis, :, :], query_sample[1])
+        query_samples = (query_samples[0][np.newaxis, :, :], query_samples[1])
 
         is_query_character = self.df['class_id'] == query['class_id'].values[0]
-        not_same_sample = self.df.index != query.index.values[0]
-        correct_samples = self.df[is_query_character & not_same_sample].sample(n)
+        not_query_sample = ~self.df.index.isin(query['id'].values)
+        correct_samples = self.df[is_query_character & not_query_sample].sample(n)
 
         # Sample k-1 speakers
         other_support_set_characters = np.random.choice(
@@ -383,7 +384,7 @@ class OmniglotDataset(Dataset):
         support_set = pd.concat([correct_samples]+other_support_samples)
         support_set_samples = tuple(np.stack(i) for i in zip(*[self[i] for i in support_set.index]))
 
-        return query_sample, support_set_samples
+        return query_samples, support_set_samples
 
     @staticmethod
     def index_subset(subset):

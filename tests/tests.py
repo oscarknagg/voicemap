@@ -5,7 +5,7 @@ import pandas as pd
 import torch
 
 from voicemap.utils import whiten
-from voicemap.librispeech import LibriSpeechDataset
+from voicemap.datasets import LibriSpeechDataset, OmniglotDataset
 from config import PATH
 
 
@@ -28,6 +28,51 @@ class TestLibriSpeechDataset(unittest.TestCase):
             all(self.dataset[i][1] != self.dataset[j][1] for i, j in differing_pairs),
             'All differing pairs must come from different speakers.'
         )
+
+    def test_n_shot_task(self):
+        # Build a 5 way, 1 shot task
+        n, k = 1, 5
+        query_sample, support_set_samples = self.dataset.build_n_shot_task(k, n)
+        query_label = query_sample[1]
+        support_set_labels = support_set_samples[1]
+
+        self.assertTrue(
+            query_label == support_set_labels[0],
+            'The first sample in the support set should be from the same speaker as the query sample.'
+        )
+
+        self.assertTrue(
+            query_label not in support_set_labels[1:],
+            'The query speaker should not appear anywhere in the support set except the first sample.'
+        )
+
+        self.assertTrue(
+            len(np.unique(support_set_labels)) == k,
+            'A k-way classification task should contain k unique speakers.'
+        )
+
+        # Build a 5 way, 5 shot task
+        n, k = 5, 5
+        query_sample, support_set_samples = self.dataset.build_n_shot_task(k, n)
+        support_set_labels = support_set_samples[1]
+
+        self.assertTrue(
+            all(pd.value_counts(support_set_labels) == 5),
+            'An n-shot task should contain n samples from each speaker.'
+        )
+
+        for i in range(0, n * k, n):
+            support_set_classes_correct = np.all(support_set_labels[i:i + n] == support_set_labels[i])
+            self.assertTrue(
+                support_set_classes_correct,
+                'Classes of support set samples should be arranged like: [class_1]*n + [class_2]*n + ... + [class_k]*n'
+            )
+
+
+class TestOmniglotDataset(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.dataset = OmniglotDataset('evaluation')
 
     def test_n_shot_task(self):
         # Build a 5 way, 1 shot task
