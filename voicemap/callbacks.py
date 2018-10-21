@@ -362,7 +362,12 @@ class ReduceLROnPlateau(Callback):
 
     def on_epoch_end(self, epoch, logs=None):
         logs = logs or {}
-        logs['lr'] = self.optimiser.param_groups[0]['lr']
+        if len(self.optimiser.param_groups) == 1:
+            logs['lr'] = self.optimiser.param_groups[0]['lr']
+        else:
+            for i, param_group in enumerate(self.optimiser.param_groups):
+                logs['lr_{}'.format(i)] = param_group['lr']
+
         current = logs.get(self.monitor)
 
         if self.in_cooldown():
@@ -506,7 +511,7 @@ class NShotTaskEvaluation(Callback):
 
     def on_epoch_end(self, epoch, logs=None):
         logs = logs or {}
-        logs[self.prefix + '{}-shot_k-way_acc'.format(self.n_shot, self.k_way)] = n_shot_k_way_evaluation(
+        logs[self.prefix + '{}-shot_{}-way_acc'.format(self.n_shot, self.k_way)] = n_shot_k_way_evaluation(
             model=self.model,
             dataset=self.dataset,
             prepare_batch=self.prepare_batch,
@@ -516,3 +521,45 @@ class NShotTaskEvaluation(Callback):
             network_type=self.network_type,
             distance=self.distance
         )
+
+
+class LearningRateScheduler(Callback):
+    """Learning rate scheduler.
+    # Arguments
+        schedule: a function that takes an epoch index as input
+            (integer, indexed from 0) and current learning rate
+            and returns a new learning rate as output (float).
+        verbose: int. 0: quiet, 1: update messages.
+    """
+
+    def __init__(self, schedule, verbose=0):
+        super(LearningRateScheduler, self).__init__()
+        self.schedule = schedule
+        self.verbose = verbose
+
+    def on_train_begin(self, logs=None):
+        self.optimiser = self.params['optimiser']
+
+    def on_epoch_begin(self, epoch, logs=None):
+        lrs = [self.schedule(epoch, param_group['lr']) for param_group in self.optimiser.param_groups]
+
+        if not all(isinstance(lr, (float, np.float32, np.float64)) for lr in lrs):
+            raise ValueError('The output of the "schedule" function '
+                             'should be float.')
+        self.set_lr(epoch, lrs)
+
+    def on_epoch_end(self, epoch, logs=None):
+        logs = logs or {}
+        if len(self.optimiser.param_groups) == 1:
+            logs['lr'] = self.optimiser.param_groups[0]['lr']
+        else:
+            for i, param_group in enumerate(self.optimiser.param_groups):
+                logs['lr_{}'.format(i)] = param_group['lr']
+
+    def set_lr(self, epoch, lrs):
+        for i, param_group in enumerate(self.optimiser.param_groups):
+            new_lr = lrs[i]
+            param_group['lr'] = new_lr
+            if self.verbose:
+                print('Epoch {:5d}: setting learning rate'
+                      ' of group {} to {:.4e}.'.format(epoch, i, new_lr))
