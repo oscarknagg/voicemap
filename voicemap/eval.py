@@ -2,6 +2,7 @@ import torch
 
 from voicemap.models import Bottleneck
 from voicemap.metrics import NAMED_METRICS
+from voicemap.utils import pairwise_distances
 
 
 def evaluate(model, dataloader, prepare_batch, metrics, loss_fn=None, prefix='val_', suffix=''):
@@ -38,17 +39,34 @@ def evaluate(model, dataloader, prepare_batch, metrics, loss_fn=None, prefix='va
 
 def n_shot_k_way_evaluation(model, dataset, prepare_batch, num_tasks, n, k,
                             network_type='classifier', distance='euclidean'):
-    if network_type != 'classifier':
-        raise NotImplementedError
+    """
+    Evalaute a model on n-shot, k-way tasks.
+
+    # Arguments
+        model: Model to evaluate
+        dataset: Dataset to generate tasks from
+        prepare_batch: Desired preprocessing steps
+        num_tasks: Number of tasks to evaluate on
+        n: Number of samples per class
+        k: Number of classes
+        network_type: Either 'classifier' or 'encoder'. If 'classifier' then strip the classification layer to get
+            bottleneck features. 'encoder' should be used for any model that encodes a sample into a low dimensional
+            space.
+        distance: Distance metric to use
+    """
+    if network_type == 'classifier':
+        encoder = Bottleneck(model)
+        encoder.eval()
+    elif network_type == 'encoder':
+        encoder = model
+    else:
+        raise(ValueError, 'network_type must be one of (classifier, encoder)')
 
     if distance != 'euclidean':
         raise NotImplementedError
 
     if n > 1:
         raise NotImplementedError
-
-    bottleneck = Bottleneck(model)
-    bottleneck.eval()
 
     n_correct = 0
     for i in range(num_tasks):
@@ -57,8 +75,8 @@ def n_shot_k_way_evaluation(model, dataset, prepare_batch, num_tasks, n, k,
         query_instance, support_instances = prepare_batch(query_sample, support_set_samples)
 
         with torch.no_grad():
-            query_embedding = bottleneck(query_instance)
-            support_embeddings = bottleneck(support_instances)
+            query_embedding = encoder(query_instance)
+            support_embeddings = encoder(support_instances)
 
         pred = torch.pairwise_distance(
             query_embedding.repeat([support_embeddings.shape[0], 1]),
