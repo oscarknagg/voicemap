@@ -5,7 +5,7 @@ from voicemap.callbacks import DefaultCallback, ProgressBarLogger, CallbackList
 from voicemap.metrics import NAMED_METRICS
 
 
-def gradient_step(model, optimiser, loss_fn, x, y):
+def gradient_step(model, optimiser, loss_fn, x, y, **kwargs):
     """Takes a single gradient step.
 
     TODO: Accumulent gradients for arbitrary effective batch size
@@ -33,7 +33,7 @@ def batch_metrics(model, y_pred, y, metrics, batch_logs):
 
 
 def fit(model, optimiser, loss_fn, epochs, dataloader, prepare_batch, metrics=None, callbacks=None, verbose=True,
-        gradient_step_fn=gradient_step):
+        fit_function=gradient_step, fit_function_kwargs={}):
     """Function to abstract away training loop.
 
     The benefit of this function is that allows training scripts to be much more readable and allows for easy re-use of
@@ -85,7 +85,7 @@ def fit(model, optimiser, loss_fn, epochs, dataloader, prepare_batch, metrics=No
 
             x, y = prepare_batch(batch)
 
-            loss, y_pred = gradient_step_fn(model, optimiser, loss_fn, x, y)
+            loss, y_pred = fit_function(model, optimiser, loss_fn, x, y, **fit_function_kwargs)
             batch_logs['loss'] = loss
 
             # Loops through all metrics
