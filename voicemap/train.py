@@ -32,7 +32,8 @@ def batch_metrics(model, y_pred, y, metrics, batch_logs):
     return batch_logs
 
 
-def fit(model, optimiser, loss_fn, epochs, dataloader, prepare_batch, metrics=None, callbacks=None, verbose=True):
+def fit(model, optimiser, loss_fn, epochs, dataloader, prepare_batch, metrics=None, callbacks=None, verbose=True,
+        gradient_step_fn=gradient_step):
     """Function to abstract away training loop.
 
     The benefit of this function is that allows training scripts to be much more readable and allows for easy re-use of
@@ -50,6 +51,7 @@ def fit(model, optimiser, loss_fn, epochs, dataloader, prepare_batch, metrics=No
         callbacks: Additional functionality to incorporate into training such as logging metrics to csv, model
             checkpointing, learning rate scheduling etc... See voicemap.callbacks for more.
         verbose: All print output is muted if this argument is `False`
+        gradient_step: Function for calculating gradients
     """
     # Determine number of samples:
     num_batches = len(dataloader)
@@ -83,7 +85,7 @@ def fit(model, optimiser, loss_fn, epochs, dataloader, prepare_batch, metrics=No
 
             x, y = prepare_batch(batch)
 
-            loss, y_pred = gradient_step(model, optimiser, loss_fn, x, y)
+            loss, y_pred = gradient_step_fn(model, optimiser, loss_fn, x, y)
             batch_logs['loss'] = loss
 
             # Loops through all metrics
