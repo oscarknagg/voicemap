@@ -3,7 +3,7 @@ from torch.utils.data import DataLoader
 from sklearn.model_selection import train_test_split
 import numpy as np
 
-from voicemap.librispeech import LibriSpeechDataset
+from voicemap.datasets import LibriSpeechDataset
 from voicemap.models import get_classifier
 from voicemap.callbacks import CSVLogger, EvaluateMetrics, ReduceLROnPlateau, ModelCheckpoint, NShotTaskEvaluation
 from voicemap.train import fit
