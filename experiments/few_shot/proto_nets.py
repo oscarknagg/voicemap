@@ -5,7 +5,7 @@ import torch
 from torch.optim import Adam
 from torch.utils.data import DataLoader
 
-from voicemap.datasets import OmniglotDataset
+from voicemap.datasets import OmniglotDataset, MiniImageNet
 from voicemap.models import get_omniglot_classifier, Bottleneck
 from voicemap.few_shot import NShotWrapper
 from voicemap.train import fit
@@ -22,15 +22,30 @@ torch.backends.cudnn.benchmark = True
 ##############
 # Parameters #
 ##############
-n_shot_train = 1
-k_way_train = 60
-q_queries_train = 5
-n_epochs = 40
-episodes_per_epoch = 100
-n_shot_val = 1
-k_way_val = 5
-q_queries_val = 1
-evaluation_episodes = 1000
+dataset = 'omniglot'
+
+if dataset == 'omniglot':
+    n_shot_train = 1
+    k_way_train = 60
+    q_queries_train = 5
+    n_epochs = 40
+    episodes_per_epoch = 100
+    n_shot_val = 1
+    k_way_val = 5
+    q_queries_val = 1
+    evaluation_episodes = 1000
+    dataset_class = OmniglotDataset
+else:
+    n_shot_train = 1
+    k_way_train = 60
+    q_queries_train = 5
+    n_epochs = 40
+    episodes_per_epoch = 100
+    n_shot_val = 1
+    k_way_val = 5
+    q_queries_val = 1
+    evaluation_episodes = 1000
+    dataset_class = MiniImageNet
 
 
 ####################
@@ -156,10 +171,10 @@ class EvaluateProtoNet(Callback):
 ###################
 # Create datasets #
 ###################
-background = OmniglotDataset('background')
+background = dataset_class('background')
 background_tasks = NShotWrapper(background, episodes_per_epoch, n_shot_train, k_way_train, q_queries_train)
 background_taskloader = DataLoader(background_tasks, batch_size=1, num_workers=4)
-evaluation = OmniglotDataset('evaluation')
+evaluation = dataset_class('evaluation')
 evaluation_tasks = NShotWrapper(evaluation, evaluation_episodes, n_shot_val, k_way_val, q_queries_val)
 evaluation_taskloader = DataLoader(evaluation_tasks, batch_size=1, num_workers=4)
 
