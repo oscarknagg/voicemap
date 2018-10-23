@@ -8,7 +8,6 @@ Networks papers.
 1. Augment classes with rotations in multiples of 90 degrees.
 2. Downsize images to 28x28
 3. Uses background and evaluation sets present in the raw dataset
-4. Instantiates the OmniglotDataset class to index the data
 """
 from skimage import io
 from skimage import transform

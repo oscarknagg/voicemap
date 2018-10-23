@@ -2,15 +2,15 @@
 Reproduce Omniglot results of Snell et al Prototypical networks.
 """
 import torch
-import numpy as np
 from torch.optim import Adam
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 
 from voicemap.datasets import OmniglotDataset
 from voicemap.models import get_omniglot_classifier, Bottleneck
-from voicemap.eval import n_shot_k_way_evaluation
+from voicemap.few_shot import NShotWrapper
 from voicemap.train import fit
 from voicemap.callbacks import *
+from voicemap.metrics import categorical_accuracy
 from config import PATH
 
 
@@ -22,102 +22,41 @@ torch.backends.cudnn.benchmark = True
 ##############
 # Parameters #
 ##############
-batchsize = 64
-test_fraction = 0.1
-num_tasks = 1000
-k_way = 60
-n_shot = 1
-query_samples_per_class = 2
-n_epochs = 60
+n_shot_train = 1
+k_way_train = 60
+q_queries_train = 5
+n_epochs = 40
 episodes_per_epoch = 100
-
-scaling_factor = (1 / (k_way * query_samples_per_class))
+n_shot_val = 1
+k_way_val = 5
+q_queries_val = 1
+evaluation_episodes = 1000
 
 
 ####################
 # Helper functions #
 ####################
-def prepare_n_shot_batch(query, support):
-    query = torch.from_numpy(query[0]).to(device, dtype=torch.double)
-    support = torch.from_numpy(support[0]).to(device, dtype=torch.double)
-    return query, support
+def prepare_nshot_task(n, k, q):
+    def prepare_nshot_task_(batch):
+        # Strip extra batch dimension from inputs and outputs
+        # The extra batch dimension is a consequence of using the DataLoader
+        # class. However the DataLoader gives easy multiprocessing
+        x, y = batch
+        x = x.reshape(x.shape[1:]).cuda()
+        # Create dummy 0-(num_classes - 1) label
+        y = torch.arange(0, k, 1 / q).long().cuda()
+        return x, y
+
+    return prepare_nshot_task_
 
 
-###################
-# Create datasets #
-###################
-background = OmniglotDataset('background')
-evaluation = OmniglotDataset('evaluation')
-
-
-#########
-# Model #
-#########
-# This creates the baseline Omniglot classifier and then strips the classification layer leaving just
-# a network that embeds characters into a 64D space.
-model = Bottleneck(get_omniglot_classifier(1))
-model.to(device, dtype=torch.double)
-
-
-############
-# Training #
-############
-optimiser = Adam(model.parameters(), lr=1e-3)
-loss_fn = torch.nn.CrossEntropyLoss().cuda()
-
-
-class NShotWrapper(Dataset):
-    def __init__(self, dataset, epoch_length, n, k, q):
-        self.dataset = dataset
-        self.epoch_length = epoch_length
-        self.n_shot = n
-        self.k_way = k
-        self.q_queries = q
-
-    def __getitem__(self, item):
-        """Get a single n-shot, k-way, q-query task."""
-        # Select classes
-        episode_classes = np.random.choice(background.df['class_id'].unique(), size=self.k_way, replace=False)
-        df = self.dataset.df[self.dataset.df['class_id'].isin(episode_classes)]
-        batch = []
-
-        for k in episode_classes:
-            # Select support examples
-            support = df[df['class_id'] == k].sample(self.n_shot)
-
-            for i, s in support.iterrows():
-                x, y = self.dataset[s['id']]
-                batch.append(x)
-
-        for k in episode_classes:
-            query = df[(df['class_id'] == k) & (~df['id'].isin(support['id']))].sample(self.q_queries)
-            for i, q in query.iterrows():
-                x, y = self.dataset[q['id']]
-                batch.append(x)
-
-        return np.stack(batch), episode_classes
-
-    def __len__(self):
-        return self.epoch_length
-
-
-background_tasks = NShotWrapper(background, episodes_per_epoch, n_shot, k_way, query_samples_per_class)
-background_taskloader = DataLoader(background_tasks, batch_size=1, num_workers=4)
-
-
-def prepare_batch(batch):
-    # Strip extra batch dimension from inputs and outputs
-    # The extra batch dimension is a consequence of using the DataLoader
-    # class. However the DataLoader gives easy multiprocessing
-    x, y = batch
-    x = x.reshape(x.shape[1:]).cuda()
-    return x, torch.arange(0, k_way, 1/query_samples_per_class).long().cuda()
-
-
-def gradient_step(model, optimiser, loss_fn, x, y, **kwargs):
-    # Zero gradients
-    model.train()
-    optimiser.zero_grad()
+def proto_net_episode(model, optimiser, loss_fn, x, y, **kwargs):
+    if kwargs['train']:
+        # Zero gradients
+        model.train()
+        optimiser.zero_grad()
+    else:
+        model.eval()
 
     # Embed all samples
     embeddings = model(x)
@@ -148,9 +87,12 @@ def gradient_step(model, optimiser, loss_fn, x, y, **kwargs):
     # Prediction probabilities are softmax over distances
     y_pred = logits.softmax(dim=1)
 
-    # Take gradient step
-    loss.backward()
-    optimiser.step()
+    if kwargs['train']:
+        # Take gradient step
+        loss.backward()
+        optimiser.step()
+    else:
+        pass
 
     return loss.item(), y_pred
 
@@ -163,14 +105,88 @@ def lr_schedule(epoch, lr):
         return lr
 
 
+class EvaluateProtoNet(Callback):
+    """Evaluate a prototypical network network on n-shot, k-way classification tasks after every epoch.
+
+        # Arguments
+            num_tasks: int. Number of n-shot classification tasks to evaluate the model with.
+            n_shot: int. Number of samples for each class in the n-shot classification tasks.
+            k_way: int. Number of classes in the n-shot classification tasks.
+            q_queries: int. Number query samples for each class in the n-shot classification tasks.
+            task_loader: Instance of NShotWrapper class
+            prepare_batch: function. The preprocessing function to apply to samples from the dataset.
+            prefix: str. Prefix to identify dataset.
+        """
+
+    def __init__(self, num_tasks, n_shot, k_way, q_queries, task_loader, prepare_batch, prefix='val_'):
+        super(EvaluateProtoNet, self).__init__()
+        self.num_tasks = num_tasks
+        self.n_shot = n_shot
+        self.k_way = k_way
+        self.q_queries = q_queries
+        self.taskloader = task_loader
+        self.prepare_batch = prepare_batch
+        self.prefix = prefix
+        self.metric_name = f'{self.prefix}{self.n_shot}-shot_{self.k_way}-way_acc'
+
+    def on_train_begin(self, logs=None):
+        self.loss_fn = self.params['loss_fn']
+        self.optimiser = self.params['optimiser']
+
+    def on_epoch_end(self, epoch, logs=None):
+        logs = logs or {}
+        seen = 0
+        totals = {'loss': 0, self.metric_name: 0}
+        for batch_index, batch in enumerate(self.taskloader):
+            x, y = self.prepare_batch(batch)
+
+            loss, y_pred = proto_net_episode(self.model, self.optimiser, self.loss_fn, x, y,
+                                             n_shot=self.n_shot, k_way=self.k_way, q_queries=self.q_queries,
+                                             train=False)
+
+            seen += y_pred.shape[0]
+
+            totals['loss'] += loss * y_pred.shape[0]
+            totals[self.metric_name] += categorical_accuracy(y, y_pred) * y_pred.shape[0]
+
+        logs[self.prefix + 'loss'] = totals['loss'] / seen
+        logs[self.metric_name] = totals[self.metric_name] / seen
+
+
+###################
+# Create datasets #
+###################
+background = OmniglotDataset('background')
+background_tasks = NShotWrapper(background, episodes_per_epoch, n_shot_train, k_way_train, q_queries_train)
+background_taskloader = DataLoader(background_tasks, batch_size=1, num_workers=4)
+evaluation = OmniglotDataset('evaluation')
+evaluation_tasks = NShotWrapper(evaluation, evaluation_episodes, n_shot_val, k_way_val, q_queries_val)
+evaluation_taskloader = DataLoader(evaluation_tasks, batch_size=1, num_workers=4)
+
+
+#########
+# Model #
+#########
+# This creates the baseline Omniglot classifier and then strips the classification layer leaving just
+# a network that embeds characters into a 64D space.
+model = Bottleneck(get_omniglot_classifier(1))
+model.to(device, dtype=torch.double)
+
+
+############
+# Training #
+############
+optimiser = Adam(model.parameters(), lr=1e-3)
+loss_fn = torch.nn.CrossEntropyLoss().cuda()
+
 callbacks = [
-    NShotTaskEvaluation(num_tasks=num_tasks, n_shot=1, k_way=5, dataset=evaluation,
-                        prepare_batch=prepare_n_shot_batch, prefix='val_', network_type='encoder'),
-    # ModelCheckpoint(filepath=PATH + '/models/proto_net_omniglot.torch', monitor='val_1-shot_5-way_acc'),
+    EvaluateProtoNet(num_tasks=evaluation_episodes, n_shot=n_shot_val, k_way=k_way_val, q_queries=q_queries_val,
+                     task_loader=evaluation_taskloader,
+                     prepare_batch=prepare_nshot_task(n_shot_val, k_way_val, q_queries_val)),
+    ModelCheckpoint(filepath=PATH + '/models/proto_net_omniglot.torch', monitor='val_1-shot_5-way_acc'),
     LearningRateScheduler(schedule=lr_schedule),
     CSVLogger(PATH + '/logs/proto_net_omniglot.csv'),
 ]
-
 
 fit(
     model,
@@ -178,9 +194,9 @@ fit(
     loss_fn,
     epochs=n_epochs,
     dataloader=background_taskloader,
-    prepare_batch=prepare_batch,
+    prepare_batch=prepare_nshot_task(n_shot_train, k_way_train, q_queries_train),
     callbacks=callbacks,
     metrics=['categorical_accuracy'],
-    fit_function=gradient_step,
-    fit_function_kwargs={'n_shot': n_shot, 'k_way': k_way, 'q_queries': query_samples_per_class}
+    fit_function=proto_net_episode,
+    fit_function_kwargs={'n_shot': n_shot_train, 'k_way': k_way_train, 'q_queries': q_queries_train, 'train': True}
 )
