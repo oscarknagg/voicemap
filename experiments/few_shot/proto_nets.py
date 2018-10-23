@@ -22,7 +22,7 @@ torch.backends.cudnn.benchmark = True
 ##############
 # Parameters #
 ##############
-dataset = 'omniglot'
+dataset = 'miniImageNet'
 
 if dataset == 'omniglot':
     n_shot_train = 1
@@ -35,10 +35,11 @@ if dataset == 'omniglot':
     q_queries_val = 1
     evaluation_episodes = 1000
     dataset_class = OmniglotDataset
-else:
+    num_input_channels = 1
+elif dataset == 'miniImageNet':
     n_shot_train = 1
-    k_way_train = 60
-    q_queries_train = 5
+    k_way_train = 30
+    q_queries_train = 15
     n_epochs = 40
     episodes_per_epoch = 100
     n_shot_val = 1
@@ -46,6 +47,9 @@ else:
     q_queries_val = 1
     evaluation_episodes = 1000
     dataset_class = MiniImageNet
+    num_input_channels = 3
+else:
+    raise(ValueError, 'Unsupported dataset')
 
 
 ####################
@@ -57,7 +61,7 @@ def prepare_nshot_task(n, k, q):
         # The extra batch dimension is a consequence of using the DataLoader
         # class. However the DataLoader gives easy multiprocessing
         x, y = batch
-        x = x.reshape(x.shape[1:]).cuda()
+        x = x.reshape(x.shape[1:]).double().cuda()
         # Create dummy 0-(num_classes - 1) label
         y = torch.arange(0, k, 1 / q).long().cuda()
         return x, y
@@ -184,13 +188,14 @@ evaluation_taskloader = DataLoader(evaluation_tasks, batch_size=1, num_workers=4
 #########
 # This creates the baseline Omniglot classifier and then strips the classification layer leaving just
 # a network that embeds characters into a 64D space.
-model = Bottleneck(get_omniglot_classifier(1))
+model = Bottleneck(get_omniglot_classifier(1, num_input_channels))
 model.to(device, dtype=torch.double)
 
 
 ############
 # Training #
 ############
+print('Training Prototypical network on {}'.format(dataset))
 optimiser = Adam(model.parameters(), lr=1e-3)
 loss_fn = torch.nn.CrossEntropyLoss().cuda()
 
@@ -198,9 +203,9 @@ callbacks = [
     EvaluateProtoNet(num_tasks=evaluation_episodes, n_shot=n_shot_val, k_way=k_way_val, q_queries=q_queries_val,
                      task_loader=evaluation_taskloader,
                      prepare_batch=prepare_nshot_task(n_shot_val, k_way_val, q_queries_val)),
-    ModelCheckpoint(filepath=PATH + '/models/proto_net_omniglot.torch', monitor='val_1-shot_5-way_acc'),
+    ModelCheckpoint(filepath=PATH + f'/models/proto_net_{dataset}.torch', monitor='val_1-shot_5-way_acc'),
     LearningRateScheduler(schedule=lr_schedule),
-    CSVLogger(PATH + '/logs/proto_net_omniglot.csv'),
+    CSVLogger(PATH + f'/logs/proto_net_{dataset}.csv'),
 ]
 
 fit(
