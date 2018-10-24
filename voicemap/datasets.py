@@ -1,4 +1,5 @@
 from torch.utils.data import Dataset
+import torch
 from PIL import Image
 from torchvision import transforms
 from skimage import io
@@ -340,7 +341,7 @@ class OmniglotDataset(Dataset):
 
         label = self.datasetid_to_class_id[item]
 
-        return instance, label
+        return torch.from_numpy(instance), label
 
     def __len__(self):
         return len(self.df)
@@ -446,8 +447,7 @@ class MiniImageNet(Dataset):
 
         # Setup transforms
         self.transform = transforms.Compose([
-            transforms.Resize(84),
-            transforms.CenterCrop(84),
+            transforms.RandomResizedCrop(84, scale=(0.75, 1)),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                  std=[0.229, 0.224, 0.225])
@@ -455,12 +455,8 @@ class MiniImageNet(Dataset):
 
     def __getitem__(self, item):
         instance = Image.open(self.datasetid_to_filepath[item])
-
-        # This performs center cropping, resizing and permuting dimensions to channels first
         instance = self.transform(instance)
-
         label = self.datasetid_to_class_id[item]
-
         return instance, label
 
     def __len__(self):

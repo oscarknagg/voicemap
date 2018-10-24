@@ -55,9 +55,9 @@ def get_classifier(filters, embedding, num_classes):
     )
 
 
-def get_omniglot_classifier(num_classes):
+def get_omniglot_classifier(num_classes, num_input_channels=1):
     return nn.Sequential(
-        nn.Conv2d(1, 64, 3, padding=1),
+        nn.Conv2d(num_input_channels, 64, 3, padding=1),
         nn.BatchNorm2d(64),
         nn.ReLU(),
         nn.MaxPool2d(kernel_size=2, stride=2),
@@ -80,4 +80,30 @@ def get_omniglot_classifier(num_classes):
         GlobalAvgPool2d(),
 
         nn.Linear(64, num_classes)
+    )
+
+
+def get_few_shot_encoder(num_input_channels=1):
+    return nn.Sequential(
+        nn.Conv2d(num_input_channels, 64, 3, padding=1),
+        nn.BatchNorm2d(64),
+        nn.ReLU(),
+        nn.MaxPool2d(kernel_size=2, stride=2),
+
+        nn.Conv2d(64, 64, 3, padding=1),
+        nn.BatchNorm2d(64),
+        nn.ReLU(),
+        nn.MaxPool2d(kernel_size=2, stride=2),
+
+        nn.Conv2d(64, 64, 3, padding=1),
+        nn.BatchNorm2d(64),
+        nn.ReLU(),
+        nn.MaxPool2d(kernel_size=2, stride=2),
+
+        nn.Conv2d(64, 64, 3, padding=1),
+        nn.BatchNorm2d(64),
+        nn.ReLU(),
+        nn.MaxPool2d(kernel_size=2, stride=2),
+
+        GlobalAvgPool2d(),
     )
