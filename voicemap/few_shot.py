@@ -4,6 +4,7 @@ import torch
 
 from voicemap.metrics import categorical_accuracy
 from voicemap.callbacks import Callback
+from voicemap.utils import query_prototype_distances
 
 
 class NShotWrapper(Dataset):
@@ -65,10 +66,7 @@ def proto_net_episode(model, optimiser, loss_fn, x, y, **kwargs):
 
     # Efficiently calculate squared distances between all queries and all prototypes
     # Output should have shape (q_queries * k_way, k_way) = (num_queries, k_way)
-    distances = (
-        queries.unsqueeze(1).expand(kwargs['q_queries'] * kwargs['k_way'], kwargs['k_way'], -1) -
-        prototypes.unsqueeze(0).expand(kwargs['q_queries'] * kwargs['k_way'], kwargs['k_way'], -1)
-    ).pow(2).sum(dim=2)
+    distances = query_prototype_distances(queries, prototypes, kwargs['q_queries'], kwargs['k_way'])
     logits = -distances
 
     # First instance is always correct one by construction so the label reflects this

@@ -21,21 +21,21 @@ def whiten(batch, rms=0.038021):
     return whitened_batch
 
 
-def pairwise_distances(x, y=None):
-    """
-    Input: x is a Nxd matrix
-           y is an optional Mxd matirx
-    Output: dist is a NxM matrix where dist[i,j] is the square norm between x[i,:] and y[j,:]
-            if y is not given then use 'y=x'.
-    i.e. dist[i,j] = ||x[i,:]-y[j,:]||
-    """
-    x_norm = (x**2).sum(1).view(-1, 1)
-    if y is not None:
-        y_norm = (y**2).sum(1).view(1, -1)
-    else:
-        y = x
-        y_norm = x_norm.view(1, -1)
+def query_prototype_distances(query, prototypes, q, k):
+    """Efficiently calculate matching scores between query samples and class prototypes
+    in an n-shot, k-way, q-query-per-class classification task.
 
-    dist = x_norm + y_norm - 2.0 * torch.mm(x, torch.transpose(y, 0, 1))
+    The output should be a tensor of shape (q * k, k) in which each of the q * k rows
+    contains the distances between that query sample and the k class prototypes.
 
-    return torch.sqrt(dist)
+    This is equivalent to the the logits of a k-way classification network.
+
+    # Arguments
+        query: Query samples. A tensor of shape (q * k, d) where d is the embedding dimension
+        prototypes: Class prototypes. A tensor of shape (k, d) where d is the embedding dimension
+    """
+    distances = (
+            query.unsqueeze(1).expand(q * k, k, -1) -
+            prototypes.unsqueeze(0).expand(q * k, k, -1)
+    ).pow(2).sum(dim=2)
+    return distances
