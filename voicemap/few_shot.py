@@ -90,6 +90,7 @@ class EvaluateProtoNet(Callback):
     """Evaluate a prototypical network network on n-shot, k-way classification tasks after every epoch.
 
         # Arguments
+            eval_fn: proto_net_episode or matching_net_episode
             num_tasks: int. Number of n-shot classification tasks to evaluate the model with.
             n_shot: int. Number of samples for each class in the n-shot classification tasks.
             k_way: int. Number of classes in the n-shot classification tasks.
@@ -99,8 +100,9 @@ class EvaluateProtoNet(Callback):
             prefix: str. Prefix to identify dataset.
         """
 
-    def __init__(self, num_tasks, n_shot, k_way, q_queries, task_loader, prepare_batch, prefix='val_'):
+    def __init__(self, eval_fn, num_tasks, n_shot, k_way, q_queries, task_loader, prepare_batch, prefix='val_', **kwargs):
         super(EvaluateProtoNet, self).__init__()
+        self.eval_fn = eval_fn
         self.num_tasks = num_tasks
         self.n_shot = n_shot
         self.k_way = k_way
@@ -108,6 +110,7 @@ class EvaluateProtoNet(Callback):
         self.taskloader = task_loader
         self.prepare_batch = prepare_batch
         self.prefix = prefix
+        self.kwargs = kwargs
         self.metric_name = f'{self.prefix}{self.n_shot}-shot_{self.k_way}-way_acc'
 
     def on_train_begin(self, logs=None):
@@ -121,9 +124,9 @@ class EvaluateProtoNet(Callback):
         for batch_index, batch in enumerate(self.taskloader):
             x, y = self.prepare_batch(batch)
 
-            loss, y_pred = proto_net_episode(self.model, self.optimiser, self.loss_fn, x, y,
+            loss, y_pred = self.eval_fn(self.model, self.optimiser, self.loss_fn, x, y,
                                              n_shot=self.n_shot, k_way=self.k_way, q_queries=self.q_queries,
-                                             train=False)
+                                             train=False, **self.kwargs)
 
             seen += y_pred.shape[0]
 
@@ -132,6 +135,56 @@ class EvaluateProtoNet(Callback):
 
         logs[self.prefix + 'loss'] = totals['loss'] / seen
         logs[self.metric_name] = totals[self.metric_name] / seen
+
+
+def matching_net_eposide(model, optimiser, loss_fn, x, y, **kwargs):
+    if kwargs['train']:
+        # Zero gradients
+        model.train()
+        optimiser.zero_grad()
+    else:
+        model.eval()
+
+    # Embed all samples
+    embeddings = model.encoder(x)
+
+    # Samples are ordered by the NShotWrapper class as follows:
+    # k lots of n support samples from a particular class
+    # k lots of q query samples from those classes
+    support = embeddings[:kwargs['n_shot'] * kwargs['k_way']]
+    queries = embeddings[kwargs['n_shot'] * kwargs['k_way']:]
+
+    # Optionally apply full context embeddings
+    if kwargs['fce']:
+        # LSTM requires input of shape (seq_len, batch, input_size). `support` is of
+        # shape (k_way * n_shot, embedding_dim) and we want the LSTM to treat the
+        # support set as a sequence so add a single dimension to transform support set
+        # to the shape (k_way * n_shot, 1, embedding_dim) and then remove the batch dimension
+        # afterwards
+        support, _, _ = model.g(support.unsqueeze(1))
+        support = support.squeeze(1)
+        # support = model.f(queries)
+
+    # Efficiently calculate cosine distance between all queries and all prototypes
+    # Output should have shape (q_queries * k_way, k_way) = (num_queries, k_way)
+    distances = query_support_distances(queries, support, kwargs['q_queries'], kwargs['k_way'], 'cosine')
+    logits = -distances
+
+    # First instance is always correct one by construction so the label reflects this
+    # Label is repeated by the number of queries
+    loss = loss_fn(logits, y)
+
+    # Prediction probabilities are softmax over distances
+    y_pred = logits.softmax(dim=1)
+
+    if kwargs['train']:
+        # Take gradient step
+        loss.backward()
+        optimiser.step()
+    else:
+        pass
+
+    return loss.item(), y_pred
 
 
 def prepare_nshot_task(n, k, q):
