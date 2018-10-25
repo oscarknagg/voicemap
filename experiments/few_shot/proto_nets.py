@@ -8,7 +8,7 @@ import argparse
 
 from voicemap.datasets import OmniglotDataset, MiniImageNet
 from voicemap.models import get_few_shot_encoder
-from voicemap.few_shot import NShotWrapper, proto_net_episode, EvaluateProtoNet, prepare_nshot_task
+from voicemap.few_shot import NShotWrapper, proto_net_episode, EvaluateFewShot, prepare_nshot_task
 from voicemap.train import fit
 from voicemap.callbacks import *
 from config import PATH
@@ -86,7 +86,8 @@ def lr_schedule(epoch, lr):
 
 
 callbacks = [
-    EvaluateProtoNet(
+    EvaluateFewShot(
+        eval_fn=proto_net_episode,
         num_tasks=evaluation_episodes,
         n_shot=args.n_test,
         k_way=args.k_test,

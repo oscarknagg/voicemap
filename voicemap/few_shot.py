@@ -86,22 +86,22 @@ def proto_net_episode(model, optimiser, loss_fn, x, y, **kwargs):
     return loss.item(), y_pred
 
 
-class EvaluateProtoNet(Callback):
-    """Evaluate a prototypical network network on n-shot, k-way classification tasks after every epoch.
+class EvaluateFewShot(Callback):
+    """Evaluate a network on  an n-shot, k-way classification tasks after every epoch.
 
-        # Arguments
-            eval_fn: proto_net_episode or matching_net_episode
-            num_tasks: int. Number of n-shot classification tasks to evaluate the model with.
-            n_shot: int. Number of samples for each class in the n-shot classification tasks.
-            k_way: int. Number of classes in the n-shot classification tasks.
-            q_queries: int. Number query samples for each class in the n-shot classification tasks.
-            task_loader: Instance of NShotWrapper class
-            prepare_batch: function. The preprocessing function to apply to samples from the dataset.
-            prefix: str. Prefix to identify dataset.
-        """
+    # Arguments
+        eval_fn: proto_net_episode or matching_net_episode
+        num_tasks: int. Number of n-shot classification tasks to evaluate the model with.
+        n_shot: int. Number of samples for each class in the n-shot classification tasks.
+        k_way: int. Number of classes in the n-shot classification tasks.
+        q_queries: int. Number query samples for each class in the n-shot classification tasks.
+        task_loader: Instance of NShotWrapper class
+        prepare_batch: function. The preprocessing function to apply to samples from the dataset.
+        prefix: str. Prefix to identify dataset.
+    """
 
     def __init__(self, eval_fn, num_tasks, n_shot, k_way, q_queries, task_loader, prepare_batch, prefix='val_', **kwargs):
-        super(EvaluateProtoNet, self).__init__()
+        super(EvaluateFewShot, self).__init__()
         self.eval_fn = eval_fn
         self.num_tasks = num_tasks
         self.n_shot = n_shot
