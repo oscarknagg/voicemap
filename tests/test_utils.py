@@ -81,7 +81,7 @@ class TestDistance(unittest.TestCase):
         for i, q_ in enumerate(query):
             for j, s_ in enumerate(support):
                 self.assertTrue(
-                    torch.isclose(CosineSimilarity(dim=0)(q_, s_), distances[i, j]),
+                    torch.isclose(1-CosineSimilarity(dim=0)(q_, s_), distances[i, j], atol=2e-8),
                     'The jth column of the ith row should be the squared distance between the '
                     'ith query sample and the kth query sample'
                 )
