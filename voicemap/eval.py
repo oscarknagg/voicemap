@@ -2,7 +2,6 @@ import torch
 
 from voicemap.models import Bottleneck
 from voicemap.metrics import NAMED_METRICS
-from voicemap.utils import pairwise_distances
 
 
 def evaluate(model, dataloader, prepare_batch, metrics, loss_fn=None, prefix='val_', suffix=''):

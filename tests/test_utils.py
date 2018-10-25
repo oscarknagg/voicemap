@@ -2,6 +2,7 @@ import unittest
 import soundfile as sf
 import numpy as np
 import torch
+from torch.nn.modules.distance import CosineSimilarity, PairwiseDistance
 
 from voicemap.utils import *
 from config import PATH
@@ -30,7 +31,7 @@ class TestWhitening(unittest.TestCase):
 
 
 class TestDistance(unittest.TestCase):
-    def test_query_prototype_distances(self):
+    def test_query_support_distances(self):
         # Create some dummy data with easily verifiable distances
         q = 1  # 1 query per class
         k = 3  # 3 way classification
@@ -45,18 +46,43 @@ class TestDistance(unittest.TestCase):
         support[1] = torch.Tensor([1, 2])
         support[2] = torch.Tensor([2, 2])
 
-        distances = query_prototype_distances(query, support, q, k)
+        distances = query_support_distances(query, support, q, k, 'l2')
         self.assertEqual(
             distances.shape, (q * k, k),
             'Output should have shape (q * k, k).'
         )
 
-        # Calculate distances by iterating through all query-support pairs
+        # Calculate squared distances by iterating through all query-support pairs
         for i, q_ in enumerate(query):
             for j, s_ in enumerate(support):
                 self.assertEqual(
                     (q_ - s_).pow(2).sum(),
+                    distances[i, j].item(),
+                    'The jth column of the ith row should be the squared distance between the '
+                    'ith query sample and the kth class prototype'
+                )
+
+        # Create some dummy data with easily verifiable distances
+        q = 1  # 1 query per class
+        k = 3  # 3 way classification
+        d = 2  # embedding dimension of two
+        query = torch.zeros([q * k, d], dtype=torch.double)
+        query[0] = torch.Tensor([1, 0])
+        query[1] = torch.Tensor([0, 1])
+        query[2] = torch.Tensor([1, 1])
+        support = torch.zeros([k, d], dtype=torch.double)
+        support[0] = torch.Tensor([1, 1])
+        support[1] = torch.Tensor([-1, -1])
+        support[2] = torch.Tensor([0, 2])
+
+        distances = query_support_distances(query, support, q, k, 'cosine')
+
+        # Calculate distances by iterating through all query-support pairs
+        for i, q_ in enumerate(query):
+            for j, s_ in enumerate(support):
+                self.assertEqual(
+                    CosineSimilarity(dim=0)(q_, s_),
                     distances[i, j],
-                    'The jth column of the ith row should be distance between the '
+                    'The jth column of the ith row should be the squared distance between the '
                     'ith query sample and the kth class prototype'
                 )

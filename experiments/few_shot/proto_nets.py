@@ -38,6 +38,7 @@ if args.dataset == 'omniglot':
     evaluation_episodes = 1000
     dataset_class = OmniglotDataset
     num_input_channels = 1
+    drop_lr_every = 20
 elif args.dataset == 'miniImageNet':
     n_shot_train = 1
     k_way_train = 30
@@ -50,6 +51,7 @@ elif args.dataset == 'miniImageNet':
     evaluation_episodes = 1000
     dataset_class = MiniImageNet
     num_input_channels = 3
+    drop_lr_every = 30
 else:
     raise(ValueError, 'Unsupported dataset')
 
@@ -84,7 +86,7 @@ loss_fn = torch.nn.CrossEntropyLoss().cuda()
 
 def lr_schedule(epoch, lr):
     # Drop lr every 2000 episodes
-    if epoch % 20 == 0:
+    if epoch % drop_lr_every == 0:
         return lr / 2
     else:
         return lr

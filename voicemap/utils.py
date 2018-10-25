@@ -1,7 +1,7 @@
 import torch
 
 
-def whiten(batch, rms=0.038021):
+def whiten(batch: torch.Tensor, rms: int = 0.038021) -> torch.Tensor:
     """This function whitens a batch of samples so each sample
     has 0 mean and the same root mean square amplitude i.e. volume.
 
@@ -21,9 +21,15 @@ def whiten(batch, rms=0.038021):
     return whitened_batch
 
 
-def query_prototype_distances(query, prototypes, q, k):
-    """Efficiently calculate matching scores between query samples and class prototypes
+def query_support_distances(query: torch.Tensor,
+                            support: torch.Tensor,
+                            q: int,
+                            k: int,
+                            matching_fn: str) -> torch.Tensor:
+    """Efficiently calculate matching scores between query samples and support samples
     in an n-shot, k-way, q-query-per-class classification task.
+
+    In the case of Prototypical Networks the query samples are actually class prototypes.
 
     The output should be a tensor of shape (q * k, k) in which each of the q * k rows
     contains the distances between that query sample and the k class prototypes.
@@ -34,8 +40,20 @@ def query_prototype_distances(query, prototypes, q, k):
         query: Query samples. A tensor of shape (q * k, d) where d is the embedding dimension
         prototypes: Class prototypes. A tensor of shape (k, d) where d is the embedding dimension
     """
-    distances = (
-            query.unsqueeze(1).expand(q * k, k, -1) -
-            prototypes.unsqueeze(0).expand(q * k, k, -1)
-    ).pow(2).sum(dim=2)
-    return distances
+    if matching_fn == 'l2':
+        distances = (
+                query.unsqueeze(1).expand(q * k, k, -1) -
+                support.unsqueeze(0).expand(q * k, k, -1)
+        ).pow(2).sum(dim=2)
+        return distances
+    elif matching_fn == 'cosine':
+        normed_queries = query / query.pow(2).sum(dim=1, keepdim=True).sqrt()
+        normed_supports = support / support.pow(2).sum(dim=1, keepdim=True).sqrt()
+
+        expanded_queries = normed_queries.unsqueeze(1).expand(q * k, k, -1)
+        expanded_supports = normed_supports.unsqueeze(0).expand(q * k, k, -1)
+
+        distances = (expanded_queries * expanded_supports).sum(dim=2)
+        return distances
+    else:
+        raise(ValueError, 'Unsupported matching function')
