@@ -24,48 +24,41 @@ torch.backends.cudnn.benchmark = True
 ##############
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset')
+parser.add_argument('--n-train', default=1)
+parser.add_argument('--n-test', default=1)
+parser.add_argument('--k-train', default=30)
+parser.add_argument('--k-test', default=5)
+parser.add_argument('--q-train', default=15)
+parser.add_argument('--q-test', default=1)
 args = parser.parse_args()
 
+evaluation_episodes = 1000
+episodes_per_epoch = 100
+
 if args.dataset == 'omniglot':
-    n_shot_train = 1
-    k_way_train = 60
-    q_queries_train = 5
     n_epochs = 40
-    episodes_per_epoch = 100
-    n_shot_val = 1
-    k_way_val = 5
-    q_queries_val = 1
-    evaluation_episodes = 1000
     dataset_class = OmniglotDataset
     num_input_channels = 1
     drop_lr_every = 20
 elif args.dataset == 'miniImageNet':
-    n_shot_train = 1
-    k_way_train = 30
-    q_queries_train = 15
-    n_epochs = 80
-    episodes_per_epoch = 100
-    n_shot_val = 1
-    k_way_val = 5
-    q_queries_val = 1
-    evaluation_episodes = 1000
+    n_epochs = 40
     dataset_class = MiniImageNet
     num_input_channels = 3
-    drop_lr_every = 30
+    drop_lr_every = 40
 else:
     raise(ValueError, 'Unsupported dataset')
 
-param_str = f'proto_net_{args.dataset}_n={n_shot_train}_k={k_way_train}_q={q_queries_train}'
+param_str = f'proto_net_{args.dataset}_n={args.n_train}_k={args.k_train}_q={args.q_train}'
 
 
 ###################
 # Create datasets #
 ###################
 background = dataset_class('background')
-background_tasks = NShotWrapper(background, episodes_per_epoch, n_shot_train, k_way_train, q_queries_train)
+background_tasks = NShotWrapper(background, episodes_per_epoch, args.n_train, args.k_train, args.q_train)
 background_taskloader = DataLoader(background_tasks, batch_size=1, num_workers=4)
 evaluation = dataset_class('evaluation')
-evaluation_tasks = NShotWrapper(evaluation, evaluation_episodes, n_shot_val, k_way_val, q_queries_val)
+evaluation_tasks = NShotWrapper(evaluation, evaluation_episodes, args.n_test, args.k_test, args.q_test)
 evaluation_taskloader = DataLoader(evaluation_tasks, batch_size=1, num_workers=4)
 
 
@@ -95,15 +88,15 @@ def lr_schedule(epoch, lr):
 callbacks = [
     EvaluateProtoNet(
         num_tasks=evaluation_episodes,
-        n_shot=n_shot_val,
-        k_way=k_way_val,
-        q_queries=q_queries_val,
+        n_shot=args.n_test,
+        k_way=args.k_test,
+        q_queries=args.q_test,
         task_loader=evaluation_taskloader,
-        prepare_batch=prepare_nshot_task(n_shot_val, k_way_val, q_queries_val)
+        prepare_batch=prepare_nshot_task(args.n_test, args.k_test, args.q_test)
     ),
     ModelCheckpoint(
         filepath=PATH + f'/models/{param_str}.torch',
-        monitor=f'val_{n_shot_val}-shot_{k_way_val}-way_acc'
+        monitor=f'val_{args.n_test}-shot_{args.k_test}-way_acc'
     ),
     LearningRateScheduler(schedule=lr_schedule),
     CSVLogger(PATH + f'/logs/{param_str}.csv'),
@@ -115,9 +108,9 @@ fit(
     loss_fn,
     epochs=n_epochs,
     dataloader=background_taskloader,
-    prepare_batch=prepare_nshot_task(n_shot_train, k_way_train, q_queries_train),
+    prepare_batch=prepare_nshot_task(args.n_train, args.k_train, args.q_train),
     callbacks=callbacks,
     metrics=['categorical_accuracy'],
     fit_function=proto_net_episode,
-    fit_function_kwargs={'n_shot': n_shot_train, 'k_way': k_way_train, 'q_queries': q_queries_train, 'train': True}
+    fit_function_kwargs={'n_shot': args.n_train, 'k_way': args.k_train, 'q_queries': args.q_train, 'train': True}
 )
