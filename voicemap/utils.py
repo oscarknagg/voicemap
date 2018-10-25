@@ -47,8 +47,8 @@ def query_support_distances(query: torch.Tensor,
         ).pow(2).sum(dim=2)
         return distances
     elif matching_fn == 'cosine':
-        normed_queries = query / query.pow(2).sum(dim=1, keepdim=True).sqrt()
-        normed_supports = support / support.pow(2).sum(dim=1, keepdim=True).sqrt()
+        normed_queries = query / (query.pow(2).sum(dim=1, keepdim=True).sqrt() + 1e-8)
+        normed_supports = support / (support.pow(2).sum(dim=1, keepdim=True).sqrt() + 1e-8)
 
         expanded_queries = normed_queries.unsqueeze(1).expand(q * k, k, -1)
         expanded_supports = normed_supports.unsqueeze(0).expand(q * k, k, -1)
