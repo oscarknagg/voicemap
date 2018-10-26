@@ -55,5 +55,10 @@ def query_support_distances(query: torch.Tensor,
 
         cosine_similarities = (expanded_queries * expanded_supports).sum(dim=2)
         return 1 - cosine_similarities
+    elif matching_fn == 'dot':
+        expanded_queries = query.unsqueeze(1).expand(q * k, k, -1)
+        expanded_supports = support.unsqueeze(0).expand(q * k, k, -1)
+
+        return -(expanded_queries * expanded_supports).sum(dim=2)
     else:
         raise(ValueError, 'Unsupported matching function')

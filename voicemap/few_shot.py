@@ -1,6 +1,7 @@
 from torch.utils.data import Dataset
 import numpy as np
 import torch
+from torch.nn.modules.distance import CosineSimilarity, PairwiseDistance
 
 from voicemap.metrics import categorical_accuracy
 from voicemap.callbacks import Callback
@@ -165,9 +166,9 @@ def matching_net_eposide(model, optimiser, loss_fn, x, y, **kwargs):
         support = support.squeeze(1)
         # support = model.f(queries)
 
-    # Efficiently calculate cosine distance between all queries and all prototypes
+    # Efficiently calculate distance between all queries and all prototypes
     # Output should have shape (q_queries * k_way, k_way) = (num_queries, k_way)
-    distances = query_support_distances(queries, support, kwargs['q_queries'], kwargs['k_way'], 'cosine')
+    distances = query_support_distances(queries, support, kwargs['q_queries'], kwargs['k_way'], kwargs['distance'])
     logits = -distances
 
     # First instance is always correct one by construction so the label reflects this
@@ -195,11 +196,11 @@ def prepare_nshot_task(n, k, q):
         x, y = batch
         x = x.reshape(x.shape[1:]).double().cuda()
         # Create dummy 0-(num_classes - 1) label
-        y = create_nshot_task_label(k, q)
+        y = create_nshot_task_label(k, q).cuda()
         return x, y
 
     return prepare_nshot_task_
 
 
 def create_nshot_task_label(k, q):
-    return torch.arange(0, k, 1 / q).long().cuda()
+    return torch.arange(0, k, 1 / q).long()
