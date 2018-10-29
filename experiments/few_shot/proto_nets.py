@@ -24,12 +24,13 @@ torch.backends.cudnn.benchmark = True
 ##############
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataset')
-parser.add_argument('--n-train', default=1)
-parser.add_argument('--n-test', default=1)
-parser.add_argument('--k-train', default=60)
-parser.add_argument('--k-test', default=5)
-parser.add_argument('--q-train', default=5)
-parser.add_argument('--q-test', default=1)
+parser.add_argument('--distance', default='l2')
+parser.add_argument('--n-train', default=1, type=int)
+parser.add_argument('--n-test', default=1, type=int)
+parser.add_argument('--k-train', default=60, type=int)
+parser.add_argument('--k-test', default=5, type=int)
+parser.add_argument('--q-train', default=5, type=int)
+parser.add_argument('--q-test', default=1, type=int)
 args = parser.parse_args()
 
 evaluation_episodes = 1000
@@ -48,7 +49,8 @@ elif args.dataset == 'miniImageNet':
 else:
     raise(ValueError, 'Unsupported dataset')
 
-param_str = f'proto_net_{args.dataset}_n={args.n_train}_k={args.k_train}_q={args.q_train}'
+param_str = f'{args.dataset}_nt={args.n_train}_kt={args.k_train}_qt={args.q_train}_' \
+            f'nv={args.n_test}_kv={args.k_test}_qv={args.q_test}'
 
 
 ###################
@@ -74,7 +76,7 @@ model.to(device, dtype=torch.double)
 ############
 print(f'Training Prototypical network on {args.dataset}...')
 optimiser = Adam(model.parameters(), lr=1e-3)
-loss_fn = torch.nn.CrossEntropyLoss().cuda()
+loss_fn = torch.nn.NLLLoss().cuda()
 
 
 def lr_schedule(epoch, lr):
@@ -93,7 +95,8 @@ callbacks = [
         k_way=args.k_test,
         q_queries=args.q_test,
         task_loader=evaluation_taskloader,
-        prepare_batch=prepare_nshot_task(args.n_test, args.k_test, args.q_test)
+        prepare_batch=prepare_nshot_task(args.n_test, args.k_test, args.q_test),
+        distance=args.distance
     ),
     ModelCheckpoint(
         filepath=PATH + f'/models/{param_str}.torch',
@@ -113,5 +116,6 @@ fit(
     callbacks=callbacks,
     metrics=['categorical_accuracy'],
     fit_function=proto_net_episode,
-    fit_function_kwargs={'n_shot': args.n_train, 'k_way': args.k_train, 'q_queries': args.q_train, 'train': True}
+    fit_function_kwargs={'n_shot': args.n_train, 'k_way': args.k_train, 'q_queries': args.q_train, 'train': True,
+                         'distance': args.distance}
 )

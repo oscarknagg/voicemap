@@ -1,7 +1,7 @@
 from torch.utils.data import Dataset
 import numpy as np
 import torch
-from torch.nn.modules.distance import CosineSimilarity, PairwiseDistance
+import torch.functional as F
 
 from voicemap.metrics import categorical_accuracy
 from voicemap.callbacks import Callback
@@ -65,17 +65,19 @@ def proto_net_episode(model, optimiser, loss_fn, x, y, **kwargs):
     # along that dimension to generate the "prototypes" for each class
     prototypes = support.reshape(kwargs['n_shot'], kwargs['k_way'], -1).mean(dim=0)
 
-    # Efficiently calculate squared distances between all queries and all prototypes
+    # Calculate squared distances between all queries and all prototypes
     # Output should have shape (q_queries * k_way, k_way) = (num_queries, k_way)
-    distances = query_support_distances(queries, prototypes, kwargs['q_queries'], kwargs['k_way'])
-    logits = -distances
+    distances = query_support_distances(queries, prototypes, kwargs['q_queries'], kwargs['k_way'], kwargs['distance'])
+
+    # Calculate log p_{phi} (y = k | x)
+    log_p_y = (-distances).log_softmax(dim=1)
 
     # First instance is always correct one by construction so the label reflects this
     # Label is repeated by the number of queries
-    loss = loss_fn(logits, y)
+    loss = loss_fn(log_p_y, y)
 
     # Prediction probabilities are softmax over distances
-    y_pred = logits.softmax(dim=1)
+    y_pred = (-distances).softmax(dim=1)
 
     if kwargs['train']:
         # Take gradient step
@@ -126,8 +128,8 @@ class EvaluateFewShot(Callback):
             x, y = self.prepare_batch(batch)
 
             loss, y_pred = self.eval_fn(self.model, self.optimiser, self.loss_fn, x, y,
-                                             n_shot=self.n_shot, k_way=self.k_way, q_queries=self.q_queries,
-                                             train=False, **self.kwargs)
+                                        n_shot=self.n_shot, k_way=self.k_way, q_queries=self.q_queries,
+                                        train=False, **self.kwargs)
 
             seen += y_pred.shape[0]
 
@@ -148,6 +150,14 @@ def matching_net_eposide(model, optimiser, loss_fn, x, y, **kwargs):
 
     # Embed all samples
     embeddings = model.encoder(x)
+    # if kwargs['fce']:
+    #     # LSTM requires input of shape (seq_len, batch, input_size). `support` is of
+    #     # shape (k_way * n_shot, embedding_dim) and we want the LSTM to treat the
+    #     # support set as a sequence so add a single dimension to transform support set
+    #     # to the shape (k_way * n_shot, 1, embedding_dim) and then remove the batch dimension
+    #     # afterwards
+    #     embeddings, _, _ = model.g(embeddings.unsqueeze(1))
+    #     embeddings = embeddings.squeeze(1)
 
     # Samples are ordered by the NShotWrapper class as follows:
     # k lots of n support samples from a particular class
@@ -155,7 +165,7 @@ def matching_net_eposide(model, optimiser, loss_fn, x, y, **kwargs):
     support = embeddings[:kwargs['n_shot'] * kwargs['k_way']]
     queries = embeddings[kwargs['n_shot'] * kwargs['k_way']:]
 
-    # Optionally apply full context embeddings
+    # # Optionally apply full context embeddings
     if kwargs['fce']:
         # LSTM requires input of shape (seq_len, batch, input_size). `support` is of
         # shape (k_way * n_shot, embedding_dim) and we want the LSTM to treat the
