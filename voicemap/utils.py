@@ -21,44 +21,39 @@ def whiten(batch: torch.Tensor, rms: int = 0.038021) -> torch.Tensor:
     return whitened_batch
 
 
-def query_support_distances(query: torch.Tensor,
-                            support: torch.Tensor,
-                            q: int,
-                            k: int,
-                            matching_fn: str) -> torch.Tensor:
-    """Efficiently calculate matching scores between query samples and support samples
-    in an n-shot, k-way, q-query-per-class classification task.
-
-    In the case of Prototypical Networks the query samples are actually class prototypes.
-
-    The output should be a tensor of shape (q * k, k) in which each of the q * k rows
-    contains the distances between that query sample and the k class prototypes.
-
-    This is equivalent to the the logits of a k-way classification network.
+def pairwise_distances(x: torch.Tensor,
+                       y: torch.Tensor,
+                       matching_fn: str) -> torch.Tensor:
+    """Efficiently calculate pairwise distances (or other similarity scores) between
+    two sets of samples.
 
     # Arguments
-        query: Query samples. A tensor of shape (q * k, d) where d is the embedding dimension
-        prototypes: Class prototypes. A tensor of shape (k, d) where d is the embedding dimension
+        x: Query samples. A tensor of shape (n_x, d) where d is the embedding dimension
+        y: Class prototypes. A tensor of shape (n_y, d) where d is the embedding dimension
+        matching_fn: Distance metric/similarity score to compute between samples
     """
+    n_x = x.shape[0]
+    n_y = y.shape[0]
+
     if matching_fn == 'l2':
         distances = (
-                query.unsqueeze(1).expand(q * k, k, -1) -
-                support.unsqueeze(0).expand(q * k, k, -1)
+                x.unsqueeze(1).expand(n_x, n_y, -1) -
+                y.unsqueeze(0).expand(n_x, n_y, -1)
         ).pow(2).sum(dim=2)
         return distances
     elif matching_fn == 'cosine':
-        normed_queries = query / (query.pow(2).sum(dim=1, keepdim=True).sqrt() + 1e-8)
-        normed_supports = support / (support.pow(2).sum(dim=1, keepdim=True).sqrt() + 1e-8)
+        normalised_x = x / (x.pow(2).sum(dim=1, keepdim=True).sqrt() + 1e-8)
+        normalised_y = y / (y.pow(2).sum(dim=1, keepdim=True).sqrt() + 1e-8)
 
-        expanded_queries = normed_queries.unsqueeze(1).expand(q * k, k, -1)
-        expanded_supports = normed_supports.unsqueeze(0).expand(q * k, k, -1)
+        expanded_x = normalised_x.unsqueeze(1).expand(n_x, n_y, -1)
+        expanded_y = normalised_y.unsqueeze(0).expand(n_x, n_y, -1)
 
-        cosine_similarities = (expanded_queries * expanded_supports).sum(dim=2)
+        cosine_similarities = (expanded_x * expanded_y).sum(dim=2)
         return 1 - cosine_similarities
     elif matching_fn == 'dot':
-        expanded_queries = query.unsqueeze(1).expand(q * k, k, -1)
-        expanded_supports = support.unsqueeze(0).expand(q * k, k, -1)
+        expanded_x = x.unsqueeze(1).expand(n_x, n_y, -1)
+        expanded_y = y.unsqueeze(0).expand(n_x, n_y, -1)
 
-        return -(expanded_queries * expanded_supports).sum(dim=2)
+        return -(expanded_x * expanded_y).sum(dim=2)
     else:
-        raise(ValueError, 'Unsupported matching function')
+        raise(ValueError('Unsupported similarity function'))

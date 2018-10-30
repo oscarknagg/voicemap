@@ -5,7 +5,7 @@ import torch.functional as F
 
 from voicemap.metrics import categorical_accuracy
 from voicemap.callbacks import Callback
-from voicemap.utils import query_support_distances
+from voicemap.utils import pairwise_distances
 
 
 class NShotWrapper(Dataset):
@@ -23,22 +23,27 @@ class NShotWrapper(Dataset):
         episode_classes = np.random.choice(self.dataset.df['class_id'].unique(), size=self.k_way, replace=False)
         df = self.dataset.df[self.dataset.df['class_id'].isin(episode_classes)]
         batch = []
+        labels = []
 
+        support_k = {k: None for k in episode_classes}
         for k in episode_classes:
             # Select support examples
             support = df[df['class_id'] == k].sample(self.n_shot)
+            support_k[k] = support
 
             for i, s in support.iterrows():
                 x, y = self.dataset[s['id']]
                 batch.append(x)
+                labels.append(k)
 
         for k in episode_classes:
-            query = df[(df['class_id'] == k) & (~df['id'].isin(support['id']))].sample(self.q_queries)
+            query = df[(df['class_id'] == k) & (~df['id'].isin(support_k[k]['id']))].sample(self.q_queries)
             for i, q in query.iterrows():
                 x, y = self.dataset[q['id']]
                 batch.append(x)
+                labels.append(k)
 
-        return np.stack(batch), episode_classes
+        return np.stack(batch), np.array(labels)
 
     def __len__(self):
         return self.epoch_length
@@ -63,11 +68,11 @@ def proto_net_episode(model, optimiser, loss_fn, x, y, **kwargs):
 
     # Reshape so the first dimension indexes by class then take the mean
     # along that dimension to generate the "prototypes" for each class
-    prototypes = support.reshape(kwargs['n_shot'], kwargs['k_way'], -1).mean(dim=0)
+    prototypes = support.reshape(kwargs['k_way'], kwargs['n_shot'], -1).mean(dim=1)
 
     # Calculate squared distances between all queries and all prototypes
     # Output should have shape (q_queries * k_way, k_way) = (num_queries, k_way)
-    distances = query_support_distances(queries, prototypes, kwargs['q_queries'], kwargs['k_way'], kwargs['distance'])
+    distances = pairwise_distances(queries, prototypes, kwargs['distance'])
 
     # Calculate log p_{phi} (y = k | x)
     log_p_y = (-distances).log_softmax(dim=1)
@@ -178,7 +183,7 @@ def matching_net_eposide(model, optimiser, loss_fn, x, y, **kwargs):
 
     # Efficiently calculate distance between all queries and all prototypes
     # Output should have shape (q_queries * k_way, k_way) = (num_queries, k_way)
-    distances = query_support_distances(queries, support, kwargs['q_queries'], kwargs['k_way'], kwargs['distance'])
+    distances = pairwise_distances(queries, support, kwargs['q_queries'], kwargs['k_way'], kwargs['distance'])
     logits = -distances
 
     # First instance is always correct one by construction so the label reflects this
