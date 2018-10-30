@@ -52,6 +52,7 @@ else:
 param_str = f'{args.dataset}_nt={args.n_train}_kt={args.k_train}_qt={args.q_train}_' \
             f'nv={args.n_test}_kv={args.k_test}_qv={args.q_test}'
 
+print(param_str)
 
 ###################
 # Create datasets #

@@ -491,3 +491,23 @@ class MiniImageNet(Dataset):
 
         progress_bar.close()
         return images
+
+
+class DummyDataset(Dataset):
+    def __init__(self, samples_per_class, n_classes, n_features=2):
+        self.samples_per_class = samples_per_class
+        self.n_classes = n_classes
+        self.n_features = n_features
+
+        # Create a dataframe to be consistent with other Datasets
+        self.df = pd.DataFrame({
+            'class_id': [i % self.n_classes for i in range(len(self))]
+        })
+        self.df = self.df.assign(id=self.df.index.values)
+
+    def __len__(self):
+        return self.samples_per_class * self.n_classes
+
+    def __getitem__(self, item):
+        class_id = item % self.n_classes
+        return np.array([class_id]*self.n_features, dtype=np.float), float(class_id)
