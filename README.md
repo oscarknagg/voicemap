@@ -7,6 +7,10 @@ The eventual aim is for this repository to become a pip-installable
 python package for quickly and easily performing speaker identification
 related tasks.
 
+**This tensorflow/Keras/python2.7 branch is discontinued. Work is
+continuing on the pytorch-python-3.6 branch which will become the
+master branch.**
+
 ## Instructions
 #### Requirements
 Make a new virtualenv and install requirements from `requirements.txt`
