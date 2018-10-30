@@ -1,7 +1,6 @@
 from torch.utils.data import Dataset
 import numpy as np
 import torch
-import torch.functional as F
 
 from voicemap.metrics import categorical_accuracy
 from voicemap.callbacks import Callback
@@ -65,10 +64,7 @@ def proto_net_episode(model, optimiser, loss_fn, x, y, **kwargs):
     # k lots of q query samples from those classes
     support = embeddings[:kwargs['n_shot']*kwargs['k_way']]
     queries = embeddings[kwargs['n_shot']*kwargs['k_way']:]
-
-    # Reshape so the first dimension indexes by class then take the mean
-    # along that dimension to generate the "prototypes" for each class
-    prototypes = support.reshape(kwargs['k_way'], kwargs['n_shot'], -1).mean(dim=1)
+    prototypes = compute_prototypes(support, kwargs['k_way'], kwargs['n_shot'])
 
     # Calculate squared distances between all queries and all prototypes
     # Output should have shape (q_queries * k_way, k_way) = (num_queries, k_way)
@@ -76,9 +72,6 @@ def proto_net_episode(model, optimiser, loss_fn, x, y, **kwargs):
 
     # Calculate log p_{phi} (y = k | x)
     log_p_y = (-distances).log_softmax(dim=1)
-
-    # First instance is always correct one by construction so the label reflects this
-    # Label is repeated by the number of queries
     loss = loss_fn(log_p_y, y)
 
     # Prediction probabilities are softmax over distances
@@ -92,6 +85,22 @@ def proto_net_episode(model, optimiser, loss_fn, x, y, **kwargs):
         pass
 
     return loss.item(), y_pred
+
+
+def compute_prototypes(support: torch.Tensor, k: int, n: int) -> torch.Tensor:
+    """Compute class prototypes from support samples.
+
+    This very simple function is separated so it can be easily tested.
+
+    # Arguments
+        support: torch.Tensor. Tensor of shape (n * k, d) where d is the embedding
+            dimension.
+        k: int. "k-way" i.e. number of classes in the classification task
+        n: int. "n-shot" of the classification task
+    """
+    # Reshape so the first dimension indexes by class then take the mean
+    # along that dimension to generate the "prototypes" for each class
+    return support.reshape(k, n, -1).mean(dim=1)
 
 
 class EvaluateFewShot(Callback):
@@ -183,7 +192,7 @@ def matching_net_eposide(model, optimiser, loss_fn, x, y, **kwargs):
 
     # Efficiently calculate distance between all queries and all prototypes
     # Output should have shape (q_queries * k_way, k_way) = (num_queries, k_way)
-    distances = pairwise_distances(queries, support, kwargs['q_queries'], kwargs['k_way'], kwargs['distance'])
+    distances = pairwise_distances(queries, support, kwargs['distance'])
     logits = -distances
 
     # First instance is always correct one by construction so the label reflects this
