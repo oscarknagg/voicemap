@@ -46,7 +46,7 @@ class TestDistance(unittest.TestCase):
         support[1] = torch.Tensor([1, 2])
         support[2] = torch.Tensor([2, 2])
 
-        distances = query_support_distances(query, support, q, k, 'l2')
+        distances = pairwise_distances(query, support, q, k, 'l2')
         self.assertEqual(
             distances.shape, (q * k, k),
             'Output should have shape (q * k, k).'
@@ -75,7 +75,7 @@ class TestDistance(unittest.TestCase):
         support[1] = torch.Tensor([-1, -1])
         support[2] = torch.Tensor([0, 2])
 
-        distances = query_support_distances(query, support, q, k, 'cosine')
+        distances = pairwise_distances(query, support, q, k, 'cosine')
 
         # Calculate distances by iterating through all query-support pairs
         for i, q_ in enumerate(query):
@@ -103,6 +103,6 @@ class TestDistance(unittest.TestCase):
         support[1] = torch.Tensor([-1, -1])
         support[2] = torch.Tensor([0, 0])  # Third support sample is all zeros
 
-        distances = query_support_distances(query, support, q, k, 'cosine')
+        distances = pairwise_distances(query, support, q, k, 'cosine')
 
         self.assertTrue(torch.isnan(distances).sum() == 0, 'Cosine distances between 0-vectors should not be nan')
