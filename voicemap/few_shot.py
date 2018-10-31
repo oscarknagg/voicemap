@@ -1,4 +1,4 @@
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, Sampler
 import numpy as np
 import torch
 
@@ -46,6 +46,41 @@ class NShotWrapper(Dataset):
 
     def __len__(self):
         return self.epoch_length
+
+
+class NShotSampler(Sampler):
+    def __init__(self, dataset, episodes_per_epoch: int, n: int, k: int, q: int):
+        super(NShotSampler, self).__init__(dataset)
+        self.dataset = dataset
+        self.n = n
+        self.k = k
+        self.q = q
+        self.episodes_per_epoch = episodes_per_epoch
+
+    def __len__(self):
+        return self.episodes_per_epoch
+
+    def __iter__(self):
+        for _ in range(self.episodes_per_epoch):
+            episode_classes = np.random.choice(self.dataset.df['class_id'].unique(), size=self.k, replace=False)
+            df = self.dataset.df[self.dataset.df['class_id'].isin(episode_classes)]
+            batch = []
+
+            support_k = {k: None for k in episode_classes}
+            for k in episode_classes:
+                # Select support examples
+                support = df[df['class_id'] == k].sample(self.n)
+                support_k[k] = support
+
+                for i, s in support.iterrows():
+                    batch.append(s['id'])
+
+            for k in episode_classes:
+                query = df[(df['class_id'] == k) & (~df['id'].isin(support_k[k]['id']))].sample(self.q)
+                for i, q in query.iterrows():
+                    batch.append(q['id'])
+
+            yield np.stack(batch)
 
 
 def proto_net_episode(model, optimiser, loss_fn, x, y, **kwargs):

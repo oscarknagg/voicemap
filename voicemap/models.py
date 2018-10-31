@@ -105,5 +105,5 @@ def get_few_shot_encoder(num_input_channels=1):
         nn.ReLU(),
         nn.MaxPool2d(kernel_size=2, stride=2),
 
-        GlobalAvgPool2d(),
+        Flatten(),
     )
