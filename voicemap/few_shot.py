@@ -2,9 +2,9 @@ from torch.utils.data import Dataset, Sampler
 import numpy as np
 import torch
 
-from voicemap_train.metrics import categorical_accuracy
-from voicemap_train.callbacks import Callback
-from voicemap_train.utils import pairwise_distances
+from voicemap.metrics import categorical_accuracy
+from voicemap.callbacks import Callback
+from voicemap.utils import pairwise_distances
 
 
 class NShotWrapper(Dataset):

@@ -1,8 +1,8 @@
 from torch import nn
 from torch.utils.data import DataLoader
 
-from voicemap_train.callbacks import DefaultCallback, ProgressBarLogger, CallbackList
-from voicemap_train.metrics import NAMED_METRICS
+from voicemap.callbacks import DefaultCallback, ProgressBarLogger, CallbackList
+from voicemap.metrics import NAMED_METRICS
 
 
 def gradient_step(model, optimiser, loss_fn, x, y, **kwargs):

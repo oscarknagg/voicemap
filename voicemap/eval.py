@@ -1,7 +1,7 @@
 import torch
 
-from voicemap_train.models import Bottleneck
-from voicemap_train.metrics import NAMED_METRICS
+from voicemap.models import Bottleneck
+from voicemap.metrics import NAMED_METRICS
 
 
 def evaluate(model, dataloader, prepare_batch, metrics, loss_fn=None, prefix='val_', suffix=''):

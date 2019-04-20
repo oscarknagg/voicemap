@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from torch.nn.modules.distance import CosineSimilarity, PairwiseDistance
 
-from voicemap_train.utils import *
+from voicemap.utils import *
 from config import PATH
 
 

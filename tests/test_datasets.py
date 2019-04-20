@@ -3,8 +3,8 @@ import numpy as np
 import pandas as pd
 from torch.utils.data import DataLoader, Sampler
 
-from voicemap_train.datasets import *
-from voicemap_train.few_shot import NShotWrapper, NShotSampler, create_nshot_task_label
+from voicemap.datasets import *
+from voicemap.few_shot import NShotWrapper, NShotSampler, create_nshot_task_label
 
 
 class TestLibriSpeechDataset(unittest.TestCase):
