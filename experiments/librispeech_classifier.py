@@ -3,11 +3,11 @@ from torch.utils.data import DataLoader
 from sklearn.model_selection import train_test_split
 import numpy as np
 
-from voicemap.datasets import LibriSpeechDataset
-from voicemap.models import get_classifier
-from voicemap.callbacks import CSVLogger, EvaluateMetrics, ReduceLROnPlateau, ModelCheckpoint, NShotTaskEvaluation
-from voicemap.train import fit
-from voicemap.utils import whiten
+from voicemap_train.datasets import LibriSpeechDataset
+from voicemap_train.models import get_classifier
+from voicemap_train.callbacks import CSVLogger, EvaluateMetrics, ReduceLROnPlateau, ModelCheckpoint, NShotTaskEvaluation
+from voicemap_train.train import fit
+from voicemap_train.utils import whiten
 from config import PATH
 
 
