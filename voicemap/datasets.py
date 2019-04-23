@@ -1,8 +1,6 @@
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, Sampler
 import torch
-from PIL import Image
-from torchvision import transforms
-from skimage import io
+from typing import List, Union, Iterable
 from tqdm import tqdm
 import soundfile as sf
 import pandas as pd
@@ -25,7 +23,84 @@ def to_categorical(y, num_classes):
     return one_hot
 
 
-class LibriSpeechDataset(Dataset):
+class NShotTaskSampler(Sampler):
+    def __init__(self,
+                 dataset: torch.utils.data.Dataset,
+                 episodes_per_epoch: int = None,
+                 n: int = None,
+                 k: int = None,
+                 q: int = None,
+                 num_tasks: int = 1,
+                 fixed_tasks: List[Iterable[int]] = None):
+        """PyTorch Sampler subclass that generates batches of n-shot, k-way, q-query tasks.
+
+        Each n-shot task contains a "support set" of `k` sets of `n` samples and a "query set" of `k` sets
+        of `q` samples. The support set and the query set are all grouped into one Tensor such that the first n * k
+        samples are from the support set while the remaining q * k samples are from the query set.
+
+        The support and query sets are sampled such that they are disjoint i.e. do not contain overlapping samples.
+
+        # Arguments
+            dataset: Instance of torch.utils.data.Dataset from which to draw samples
+            episodes_per_epoch: Arbitrary number of batches of n-shot tasks to generate in one epoch
+            n_shot: int. Number of samples for each class in the n-shot classification tasks.
+            k_way: int. Number of classes in the n-shot classification tasks.
+            q_queries: int. Number query samples for each class in the n-shot classification tasks.
+            num_tasks: Number of n-shot tasks to group into a single batch
+            fixed_tasks: If this argument is specified this Sampler will always generate tasks from
+                the specified classes
+        """
+        super(NShotTaskSampler, self).__init__(dataset)
+        self.episodes_per_epoch = episodes_per_epoch
+        self.dataset = dataset
+        if num_tasks < 1:
+            raise ValueError('num_tasks must be > 1.')
+
+        self.num_tasks = num_tasks
+        # TODO: Raise errors if initialise badly
+        self.k = k
+        self.n = n
+        self.q = q
+        self.fixed_tasks = fixed_tasks
+
+        self.i_task = 0
+
+    def __len__(self):
+        return self.episodes_per_epoch
+
+    def __iter__(self):
+        for _ in range(self.episodes_per_epoch):
+            batch = []
+
+            for task in range(self.num_tasks):
+                if self.fixed_tasks is None:
+                    # Get random classes
+                    episode_classes = np.random.choice(self.dataset.df['class_id'].unique(), size=self.k, replace=False)
+                else:
+                    # Loop through classes in fixed_tasks
+                    episode_classes = self.fixed_tasks[self.i_task % len(self.fixed_tasks)]
+                    self.i_task += 1
+
+                df = self.dataset.df[self.dataset.df['class_id'].isin(episode_classes)]
+
+                support_k = {k: None for k in episode_classes}
+                for k in episode_classes:
+                    # Select support examples
+                    support = df[df['class_id'] == k].sample(self.n)
+                    support_k[k] = support
+
+                    for i, s in support.iterrows():
+                        batch.append(s['id'])
+
+                for k in episode_classes:
+                    query = df[(df['class_id'] == k) & (~df['id'].isin(support_k[k]['id']))].sample(self.q)
+                    for i, q in query.iterrows():
+                        batch.append(q['id'])
+
+            yield np.stack(batch)
+
+
+class LibriSpeech(Dataset):
     """This class subclasses the torch.utils.data.Dataset object. The __getitem__ function will return a raw audio
     sample and it's label.
 
@@ -42,27 +117,36 @@ class LibriSpeechDataset(Dataset):
         then a random number of 0s will be appended/prepended to each side to pad the sequence to the desired length.
         cache: bool. Whether or not to use the cached index file
     """
-    def __init__(self, subsets, seconds, downsampling, label='speaker', stochastic=True, pad=False, cache=True):
+    def __init__(self,
+                 subsets: Union[str, List[str]],
+                 seconds: int,
+                 downsampling: int,
+                 label: str = 'speaker',
+                 stochastic: bool = True,
+                 pad: bool = False,
+                 cache: bool = True,
+                 data_path: str = DATA_PATH):
         if label not in ('sex', 'speaker'):
             raise(ValueError, 'Label type must be one of (\'sex\', \'speaker\')')
 
         if int(seconds * LIBRISPEECH_SAMPLING_RATE) % downsampling != 0:
             raise(ValueError, 'Down sampling must be an integer divisor of the fragment length.')
 
-        self.subset = subsets
+        # Convert subset to list if it is a string
+        # This allows to handle list of multiple subsets the same a single subset
+        if isinstance(subsets, str):
+            subsets = [subsets]
+
+        self.subsets = subsets
         self.fragment_seconds = seconds
         self.downsampling = downsampling
         self.fragment_length = int(seconds * LIBRISPEECH_SAMPLING_RATE)
         self.stochastic = stochastic
         self.pad = pad
         self.label = label
+        self.data_path = data_path
 
         print('Initialising LibriSpeechDataset with minimum length = {}s and subsets = {}'.format(seconds, subsets))
-
-        # Convert subset to list if it is a string
-        # This allows to handle list of multiple subsets the same a single subset
-        if isinstance(subsets, str):
-            subsets = [subsets]
 
         cached_df = []
         found_cache = {s: False for s in subsets}
@@ -78,7 +162,7 @@ class LibriSpeechDataset(Dataset):
         if all(found_cache.values()) and cache:
             self.df = pd.concat(cached_df)
         else:
-            df = pd.read_csv(PATH+'/data/LibriSpeech/SPEAKERS.TXT', skiprows=11, delimiter='|', error_bad_lines=False)
+            df = pd.read_csv(PATH +'/data/LibriSpeech/SPEAKERS.TXT', skiprows=11, delimiter='|', error_bad_lines=False)
             df.columns = [col.strip().replace(';', '').lower() for col in df.columns]
             df = df.assign(
                 sex=df['sex'].apply(lambda x: x.strip()),
@@ -170,122 +254,25 @@ class LibriSpeechDataset(Dataset):
     def num_classes(self):
         return len(self.df['speaker_id'].unique())
 
-    def get_alike_pairs(self, num_pairs):
-        """Generates a list of 2-tuples containing pairs of dataset IDs belonging to the same speaker."""
-        alike_pairs = pd.merge(
-            self.df.sample(num_pairs*2, weights='length'),
-            self.df,
-            on='speaker_id'
-        ).sample(num_pairs)[['speaker_id', 'id_x', 'id_y']]
+    def index_subset(self, subset):
+        """Index a subset by looping through all of it's files and recording their speaker ID, filepath and length.
 
-        alike_pairs = zip(alike_pairs['id_x'].values, alike_pairs['id_y'].values)
+        # Arguments
+            subset: Name of the subset
 
-        return alike_pairs
-
-    def get_differing_pairs(self, num_pairs):
-        """Generates a list of 2-tuples containing pairs of dataset IDs belonging to different speakers."""
-        # First get a random sample from the dataset and then get a random sample from the remaining part of the dataset
-        # that doesn't contain any speakers from the first random sample
-        random_sample = self.df.sample(num_pairs, weights='length')
-        random_sample_from_other_speakers = self.df[~self.df['speaker_id'].isin(
-            random_sample['speaker_id'])].sample(num_pairs, weights='length')
-
-        differing_pairs = zip(random_sample['id'].values, random_sample_from_other_speakers['id'].values)
-
-        return differing_pairs
-
-    def build_verification_batch(self, batchsize):
-        """
-        This method builds a batch of verification task samples meant to be input into a siamese network. Each sample
-        is two instances of the dataset retrieved with the __getitem__ function and a label which indicates whether the
-        instances belong to the same speaker or not. Each batch is 50% pairs of instances from the same speaker and 50%
-        pairs of instances from different speakers.
-        :param batchsize: Number of verification task samples to build the batch out of.
-        :return: Inputs for both sides of the siamese network and outputs indicating whether they are from the same
-        speaker or not.
-        """
-        alike_pairs = self.get_alike_pairs(batchsize / 2)
-
-        # Take only the instances not labels and stack to form a batch of pairs of instances from the same speaker
-        input_1_alike = np.stack([self[i][0] for i in zip(*alike_pairs)[0]])
-        input_2_alike = np.stack([self[i][0] for i in zip(*alike_pairs)[1]])
-
-        differing_pairs = self.get_differing_pairs(batchsize / 2)
-
-        # Take only the instances not labels and stack to form a batch of pairs of instances from different speakers
-        input_1_different = np.stack([self[i][0] for i in zip(*differing_pairs)[0]])
-        input_2_different = np.stack([self[i][0] for i in zip(*differing_pairs)[1]])
-
-        input_1 = np.vstack([input_1_alike, input_1_different])[:, :, np.newaxis]
-        input_2 = np.vstack([input_2_alike, input_2_different])[:, :, np.newaxis]
-
-        outputs = np.append(np.zeros(batchsize/2), np.ones(batchsize/2))[:, np.newaxis]
-
-        return [input_1, input_2], outputs
-
-    def yield_verification_batches(self, batchsize):
-        """Convenience function to yield verification batches forever."""
-        while True:
-            ([input_1, input_2], labels) = self.build_verification_batch(batchsize)
-            yield ([input_1, input_2], labels)
-
-    def build_n_shot_task(self, k, n=1):
-        """
-        This method builds a k-way n-shot classification task. It returns a support set of n audio samples each from k
-        unique speakers. In addition it will return a query sample. Downstream models will attempt to match the query
-        sample to the correct samples in the support set.
-        :param k: Number of unique speakers to include in this task
-        :param n: Number of audio samples to include from each speaker
-        :return:
-        """
-        if k >= self.num_speakers:
-            raise(ValueError, 'k must be smaller than the number of unique speakers in this dataset!')
-
-        if k <= 1:
-            raise(ValueError, 'k must be greater than or equal to one!')
-
-        query = self.df.sample(1, weights='length')
-        query_sample = self[query.index.values[0]]
-        # Add batch dimension
-        query_sample = (query_sample[0][np.newaxis, :, :], query_sample[1])
-
-        is_query_speaker = self.df['speaker_id'] == query['speaker_id'].values[0]
-        not_same_sample = self.df.index != query.index.values[0]
-        correct_samples = self.df[is_query_speaker & not_same_sample].sample(n, weights='length')
-
-        # Sample k-1 speakers
-        # TODO: weight by length here
-        other_support_set_speakers = np.random.choice(
-            self.df[~is_query_speaker]['speaker_id'].unique(), k-1, replace=False)
-
-        other_support_samples = []
-        for i in range(k-1):
-            is_same_speaker = self.df['speaker_id'] == other_support_set_speakers[i]
-            other_support_samples.append(
-                self.df[~is_query_speaker & is_same_speaker].sample(n, weights='length')
-            )
-        support_set = pd.concat([correct_samples]+other_support_samples)
-        support_set_samples = tuple(np.stack(i) for i in zip(*[self[i] for i in support_set.index]))
-
-        return query_sample, support_set_samples
-
-    @staticmethod
-    def index_subset(subset):
-        """
-        Index a subset by looping through all of it's files and recording their speaker ID, filepath and length.
-        :param subset: Name of the subset
-        :return: A list of dicts containing information about all the audio files in a particular subset of the
-        LibriSpeech dataset
+        # Returns
+            audio_files: A list of dicts containing information about all the audio files in a particular subset of the
+            LibriSpeech dataset
         """
         audio_files = []
         print('Indexing {}...'.format(subset))
         # Quick first pass to find total for tqdm bar
         subset_len = 0
-        for root, folders, files in os.walk(PATH + '/data/LibriSpeech/{}/'.format(subset)):
+        for root, folders, files in os.walk(self.data_path + '/LibriSpeech/{}/'.format(subset)):
             subset_len += len([f for f in files if f.endswith('.flac')])
 
         progress_bar = tqdm(total=subset_len)
-        for root, folders, files in os.walk(PATH + '/data/LibriSpeech/{}/'.format(subset)):
+        for root, folders, files in os.walk(self.data_path + '/LibriSpeech/{}/'.format(subset)):
             if len(files) == 0:
                 continue
 
@@ -309,6 +296,79 @@ class LibriSpeechDataset(Dataset):
 
         progress_bar.close()
         return audio_files
+
+
+class SpeakersInTheWild(Dataset):
+    sampling_rate = 16000
+
+    def __init__(self,
+                 subset: Union[str, List[str]],
+                 seconds: int,
+                 downsampling: int,
+                 stochastic: bool = True,
+                 pad: bool = False,
+                 cache: bool = True,
+                 data_path: str = DATA_PATH):
+        self.seconds = seconds
+        self.downsampling = downsampling
+        self.stochastic = stochastic
+        self.pad = pad
+        self.cache = cache
+        self.data_path = data_path
+        self.fragment_length = int(seconds * self.sampling_rate)
+
+        # Get dataset info
+        self.df = pd.read_csv(self.data_path + f'/dev/lists/{subset}.lst',
+                              delimiter=' ', names=['speaker_id', 'filepath'])
+        self.df['filepath'] = self.data_path + f'/dev/' + self.df['filepath']
+
+        # Create dicts
+        self.datasetid_to_filepath = self.df.to_dict()['filepath']
+        self.datasetid_to_speaker_id = self.df.to_dict()['speaker_id']
+
+        # Convert arbitrary integer labels of dataset to ordered 0-(num_speakers - 1) labels
+        self.unique_speakers = sorted(self.df['speaker_id'].unique())
+        self.speaker_id_mapping = {self.unique_speakers[i]: i for i in range(self.num_classes())}
+
+    def __len__(self):
+        return len(self.df)
+
+    def num_classes(self):
+        return len(self.df['speaker_id'].unique())
+
+    def __getitem__(self, index):
+        instance, samplerate = sf.read(self.datasetid_to_filepath[index])
+        # Choose a random sample of the file
+        if self.stochastic:
+            fragment_start_index = np.random.randint(0, max(len(instance) - self.fragment_length, 1))
+        else:
+            fragment_start_index = 0
+
+        instance = instance[fragment_start_index:fragment_start_index + self.fragment_length]
+
+        # Check for required length and pad if necessary
+        if self.pad and len(instance) < self.fragment_length:
+            less_timesteps = self.fragment_length - len(instance)
+            if self.stochastic:
+                # Stochastic padding, ensure instance length == self.fragment_length by appending a random number of 0s
+                # before and the appropriate number of 0s after the instance
+                less_timesteps = self.fragment_length - len(instance)
+
+                before_len = np.random.randint(0, less_timesteps)
+                after_len = less_timesteps - before_len
+
+                instance = np.pad(instance, (before_len, after_len), 'constant')
+            else:
+                # Deterministic padding. Append 0s to reach self.fragment_length
+                instance = np.pad(instance, (0, less_timesteps), 'constant')
+
+        label = self.datasetid_to_speaker_id[index]
+        label = self.speaker_id_mapping[label]
+
+        # Reindex to channels first format as supported by pytorch and downsample by desired amount
+        instance = instance[np.newaxis, ::self.downsampling]
+
+        return instance, label
 
 
 class DummyDataset(Dataset):
