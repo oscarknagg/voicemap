@@ -7,7 +7,7 @@ import pandas as pd
 import numpy as np
 import os
 
-from config import PATH, DATA_PATH, LIBRISPEECH_SAMPLING_RATE
+from config import PATH, DATA_PATH
 
 
 sex_to_label = {'M': False, 'F': True}
