@@ -101,26 +101,25 @@ class NShotTaskSampler(Sampler):
 
 
 class LibriSpeech(Dataset):
-    """This class subclasses the torch.utils.data.Dataset object. The __getitem__ function will return a raw audio
-    sample and it's label.
-
-    This class also contains functionality to build verification tasks and n-shot, k-way classification tasks.
+    """Dataset object representing the LibriSpeec dataset (http://www.openslr.org/12/).
 
     # Arguments
         subsets: What LibriSpeech datasets to include.
         seconds: Minimum length of audio to include in the dataset. Any files smaller than this will be ignored.
-        downsampling:
-        label: One of {speaker, sex}. Whether to use sex or speaker ID as a label.
+        down_sampling:
         stochastic: bool. If True then we will take a random fragment from each file of sufficient length. If False we
         will always take a fragment starting at the beginning of a file.
         pad: bool. Whether or not to pad samples with 0s to get them to the desired length. If `stochastic` is True
         then a random number of 0s will be appended/prepended to each side to pad the sequence to the desired length.
         cache: bool. Whether or not to use the cached index file
     """
+
+    base_sampling_rate = 16000
+
     def __init__(self,
                  subsets: Union[str, List[str]],
                  seconds: int,
-                 downsampling: int,
+                 down_sampling: int,
                  label: str = 'speaker',
                  stochastic: bool = True,
                  pad: bool = False,
@@ -129,7 +128,7 @@ class LibriSpeech(Dataset):
         if label not in ('sex', 'speaker'):
             raise(ValueError, 'Label type must be one of (\'sex\', \'speaker\')')
 
-        if int(seconds * LIBRISPEECH_SAMPLING_RATE) % downsampling != 0:
+        if int(seconds * self.base_sampling_rate) % down_sampling != 0:
             raise(ValueError, 'Down sampling must be an integer divisor of the fragment length.')
 
         # Convert subset to list if it is a string
@@ -139,8 +138,8 @@ class LibriSpeech(Dataset):
 
         self.subsets = subsets
         self.fragment_seconds = seconds
-        self.downsampling = downsampling
-        self.fragment_length = int(seconds * LIBRISPEECH_SAMPLING_RATE)
+        self.down_sampling = down_sampling
+        self.fragment_length = int(seconds * self.base_sampling_rate)
         self.stochastic = stochastic
         self.pad = pad
         self.label = label
@@ -244,7 +243,7 @@ class LibriSpeech(Dataset):
             raise(ValueError, 'Label type must be one of (\'sex\', \'speaker\')'.format(self.label))
 
         # Reindex to channels first format as supported by pytorch and downsample by desired amount
-        instance = instance[np.newaxis, ::self.downsampling]
+        instance = instance[np.newaxis, ::self.down_sampling]
 
         return instance, label
 
@@ -291,7 +290,7 @@ class LibriSpeech(Dataset):
                     'id': librispeech_id,
                     'filepath': os.path.join(root, f),
                     'length': len(instance),
-                    'seconds': len(instance) * 1. / LIBRISPEECH_SAMPLING_RATE
+                    'seconds': len(instance) * 1. / self.base_sampling_rate
                 })
 
         progress_bar.close()
@@ -299,23 +298,33 @@ class LibriSpeech(Dataset):
 
 
 class SpeakersInTheWild(Dataset):
-    sampling_rate = 16000
+    """Dataset class representing the Speakers in the wild dataset (http://www.speech.sri.com/projects/sitw/).
+
+    # Arguments
+        subsets: What subset of the SitW dataset to use.
+        seconds: Minimum length of audio to include in the dataset. Any files smaller than this will be ignored.
+        down_sampling:
+        stochastic: bool. If True then we will take a random fragment from each file of sufficient length. If False we
+        will always take a fragment starting at the beginning of a file.
+        pad: bool. Whether or not to pad samples with 0s to get them to the desired length. If `stochastic` is True
+        then a random number of 0s will be appended/prepended to each side to pad the sequence to the desired length.
+    """
+
+    base_sampling_rate = 16000
 
     def __init__(self,
                  subset: Union[str, List[str]],
                  seconds: int,
-                 downsampling: int,
+                 down_sampling: int,
                  stochastic: bool = True,
                  pad: bool = False,
-                 cache: bool = True,
                  data_path: str = DATA_PATH):
         self.seconds = seconds
-        self.downsampling = downsampling
+        self.down_sampling = down_sampling
         self.stochastic = stochastic
         self.pad = pad
-        self.cache = cache
         self.data_path = data_path
-        self.fragment_length = int(seconds * self.sampling_rate)
+        self.fragment_length = int(seconds * self.base_sampling_rate)
 
         # Get dataset info
         self.df = pd.read_csv(self.data_path + f'/dev/lists/{subset}.lst',
@@ -373,7 +382,7 @@ class SpeakersInTheWild(Dataset):
         label = self.speaker_id_mapping[label]
 
         # Reindex to channels first format as supported by pytorch and downsample by desired amount
-        instance = instance[np.newaxis, ::self.downsampling]
+        instance = instance[np.newaxis, ::self.down_sampling]
 
         return instance, label
 
