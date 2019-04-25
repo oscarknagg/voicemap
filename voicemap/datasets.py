@@ -319,7 +319,14 @@ class SpeakersInTheWild(Dataset):
 
         # Get dataset info
         self.df = pd.read_csv(self.data_path + f'/dev/lists/{subset}.lst',
-                              delimiter=' ', names=['speaker_id', 'filepath'])
+                              delimiter=' ', names=['id', 'filepath'])
+
+        # Have to use /dev/keys/meta.list to get speaker_id
+        meta_names = ['filepath', 'speaker_id', 'gender', 'mic_type', 'session_id', 'audio_start', 'audio_end',
+                      'num_speakers', 'artifact_labels', 'artifact_level', 'environment', 'tag1', 'tag2', 'tag3',
+                      'tag4']
+        meta = pd.read_csv(self.data_path + f'/dev/keys/meta.lst', delimiter=' ', names=meta_names)
+        self.df = self.df.merge(meta, on='filepath')
         self.df['filepath'] = self.data_path + f'/dev/' + self.df['filepath']
 
         # Create dicts
