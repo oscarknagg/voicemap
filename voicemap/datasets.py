@@ -1,5 +1,6 @@
 from torch.utils.data import Dataset, Sampler
 import torch
+import bisect
 from typing import List, Union, Iterable
 from tqdm import tqdm
 import soundfile as sf
@@ -23,6 +24,53 @@ def to_categorical(y, num_classes):
     return one_hot
 
 
+class ClassConcatDataset(Dataset):
+    """Dataset to concatenate multiple datasets with distinct classes.
+
+
+    Args:
+        datasets: List of datasets to be concatenated. Each dataset class must implement the num_classes method
+    """
+
+    @staticmethod
+    def cumsum(sequence):
+        r, s = [], 0
+        for e in sequence:
+            r.append(e + s)
+            s += e
+        return r
+
+    def __init__(self, datasets):
+        super(ClassConcatDataset, self).__init__()
+        assert len(datasets) > 0, 'datasets should not be an empty iterable'
+        self.datasets = list(datasets)
+        self.cumulative_sizes = self.cumsum(len(dataset) for dataset in self.datasets)
+        self.cumulative_classes = self.cumsum(dataset.num_classes for dataset in self.datasets)
+
+    def __len__(self):
+        return self.cumulative_sizes[-1]
+
+    def __getitem__(self, idx):
+        dataset_idx = bisect.bisect_right(self.cumulative_sizes, idx)
+        if dataset_idx == 0:
+            sample_idx = idx
+        else:
+            sample_idx = idx - self.cumulative_sizes[dataset_idx - 1]
+
+        sample, class_idx = self.datasets[dataset_idx][sample_idx]
+
+        if dataset_idx == 0:
+            class_idx = class_idx
+        else:
+            class_idx += self.cumulative_classes[dataset_idx - 1]
+
+        return sample, class_idx
+
+    @property
+    def num_classes(self):
+        return self.cumulative_classes[-1]
+
+
 class NShotTaskSampler(Sampler):
     def __init__(self,
                  dataset: torch.utils.data.Dataset,
@@ -40,7 +88,7 @@ class NShotTaskSampler(Sampler):
 
         The support and query sets are sampled such that they are disjoint i.e. do not contain overlapping samples.
 
-        # Arguments
+        Args:
             dataset: Instance of torch.utils.data.Dataset from which to draw samples
             episodes_per_epoch: Arbitrary number of batches of n-shot tasks to generate in one epoch
             n_shot: int. Number of samples for each class in the n-shot classification tasks.
@@ -203,7 +251,7 @@ class LibriSpeech(Dataset):
 
         # Convert arbitrary integer labels of dataset to ordered 0-(num_speakers - 1) labels
         self.unique_speakers = sorted(self.df['speaker_id'].unique())
-        self.speaker_id_mapping = {self.unique_speakers[i]: i for i in range(self.num_classes())}
+        self.speaker_id_mapping = {self.unique_speakers[i]: i for i in range(self.num_classes)}
 
         print('Finished indexing data. {} usable files found.'.format(len(self)))
 
@@ -250,6 +298,7 @@ class LibriSpeech(Dataset):
     def __len__(self):
         return len(self.df)
 
+    @property
     def num_classes(self):
         return len(self.df['speaker_id'].unique())
 
@@ -344,11 +393,12 @@ class SpeakersInTheWild(Dataset):
 
         # Convert arbitrary integer labels of dataset to ordered 0-(num_speakers - 1) labels
         self.unique_speakers = sorted(self.df['speaker_id'].unique())
-        self.speaker_id_mapping = {self.unique_speakers[i]: i for i in range(self.num_classes())}
+        self.speaker_id_mapping = {self.unique_speakers[i]: i for i in range(self.num_classes)}
 
     def __len__(self):
         return len(self.df)
 
+    @property
     def num_classes(self):
         return len(self.df['speaker_id'].unique())
 
@@ -388,20 +438,20 @@ class SpeakersInTheWild(Dataset):
 
 
 class DummyDataset(Dataset):
-    def __init__(self, samples_per_class, n_classes, n_features=2):
+    def __init__(self, samples_per_class: int, num_classes: int, n_features: int = 2):
         self.samples_per_class = samples_per_class
-        self.n_classes = n_classes
+        self.num_classes = num_classes
         self.n_features = n_features
 
         # Create a dataframe to be consistent with other Datasets
         self.df = pd.DataFrame({
-            'class_id': [i % self.n_classes for i in range(len(self))]
+            'class_id': [i % self.num_classes for i in range(len(self))]
         })
         self.df = self.df.assign(id=self.df.index.values)
 
     def __len__(self):
-        return self.samples_per_class * self.n_classes
+        return self.samples_per_class * self.num_classes
 
     def __getitem__(self, item):
-        class_id = item % self.n_classes
+        class_id = item % self.num_classes
         return np.array([item] + [class_id]*self.n_features, dtype=np.float), float(class_id)
