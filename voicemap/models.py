@@ -5,6 +5,9 @@ from torch.nn.utils import weight_norm
 from typing import List
 
 
+from voicemap.additive_softmax import AdditiveSoftmaxLinear
+
+
 class GlobalMaxPool1d(nn.Module):
     def forward(self, input):
         return F.max_pool1d(input, kernel_size=input.size()[2:]).view(-1, input.size(1))
@@ -15,43 +18,53 @@ class GlobalAvgPool1d(nn.Module):
         return F.avg_pool1d(input, kernel_size=input.size()[2:]).view(-1, input.size(1))
 
 
-class Bottleneck(nn.Module):
-    """Gets bottleneck features from an nn.Sequential classifier."""
-    def __init__(self, model):
-        super(Bottleneck, self).__init__()
-        self.bottleneck = nn.Sequential(*model[:-1])
+class ConvBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, kernel_size):
+        super(ConvBlock, self).__init__()
+        self.conv = nn.Conv1d(in_channels, out_channels, kernel_size, padding=1)
+        self.bn = nn.BatchNorm1d(out_channels)
+        self.activation = nn.ReLU()
 
     def forward(self, x):
-        return self.bottleneck(x)
+        x = self.conv(x)
+        x = self.bn(x)
+        x = self.activation(x)
+        return x
 
 
-def get_classifier(filters, embedding, num_classes):
-    return nn.Sequential(
-        nn.Conv1d(1, filters, 32, padding=1),
-        nn.BatchNorm1d(filters),
-        nn.ReLU(),
-        nn.MaxPool1d(kernel_size=4, stride=4),
+class BaselineClassifier(nn.Module):
+    def __init__(self, in_channels, filters, embedding, num_classes):
+        super(BaselineClassifier, self).__init__()
+        self.conv1 = ConvBlock(in_channels, filters, 3)
+        self.conv2 = ConvBlock(filters, 2*filters, 3)
+        self.conv3 = ConvBlock(2*filters, 3*filters, 3)
+        self.conv4 = ConvBlock(3*filters, 4*filters, 3)
+        self.avg_pool = GlobalAvgPool1d()
+        self.embedding = nn.Linear(4*filters, embedding, bias=False)
+        self.fc = AdditiveSoftmaxLinear(embedding, num_classes)
 
-        nn.Conv1d(filters, 2 * filters, 3, padding=1),
-        nn.BatchNorm1d(2 * filters),
-        nn.ReLU(),
-        nn.MaxPool1d(kernel_size=2, stride=2),
-
-        nn.Conv1d(2 * filters, 3 * filters, 3, padding=1),
-        nn.BatchNorm1d(3 * filters),
-        nn.ReLU(),
-        nn.MaxPool1d(kernel_size=2, stride=2),
-
-        nn.Conv1d(3 * filters, 4 * filters, 3, padding=1),
-        nn.BatchNorm1d(4 * filters),
-        nn.ReLU(),
-
-        GlobalAvgPool1d(),
-
-        nn.Linear(4 * filters, embedding),
-
-        nn.Linear(embedding, num_classes),
-    )
+    def forward(self,
+                x: torch.Tensor,
+                y: torch.Tensor = None):
+        x = F.max_pool1d(self.conv1(x), kernel_size=2, stride=2)
+        x = F.max_pool1d(self.conv2(x), kernel_size=2, stride=2)
+        x = F.max_pool1d(self.conv3(x), kernel_size=2, stride=2)
+        x = F.max_pool1d(self.conv4(x), kernel_size=2, stride=2)
+        x = self.avg_pool(x)
+        x = self.embedding(x)
+        x = self.fc(x, y)
+        return x
+        # pred = self.fc(embedding)
+        # if not return_embeddings and not return_class_vectors:
+        #     return pred
+        # else:
+        #     ret = (pred, )
+        #     if return_embeddings:
+        #         ret += (embedding, )
+        #     if return_class_vectors:
+        #         ret += (self.fc.weight, )
+        #
+        #     return ret
 
 
 class ResidualBlock1D(nn.Module):
@@ -132,12 +145,12 @@ class DilatedResidualBlock(nn.Module):
         return out
 
 
-class ResidualClassifier(nn.Module):
-    def __init__(self, filters: int, layers: List[int], num_classes: int):
-        super(ResidualClassifier, self).__init__()
+class ResidualEmbedding(nn.Module):
+    def __init__(self, in_channels: int, filters: int, layers: List[int], num_classes: int):
+        super(ResidualEmbedding, self).__init__()
         self.filters = filters
 
-        self.conv1 = nn.Conv1d(1, filters, kernel_size=15, stride=4, bias=False, padding=7)
+        self.conv1 = nn.Conv1d(in_channels, filters, kernel_size=15, stride=4, bias=False, padding=7)
         self.bn1 = nn.BatchNorm1d(self.filters)
         self.maxpool1 = nn.MaxPool1d(kernel_size=9, stride=4)
 
@@ -149,12 +162,9 @@ class ResidualClassifier(nn.Module):
         self.layer_norm = nn.LayerNorm(filters*8, elementwise_affine=False)
 
         self.fc = nn.Linear(filters*8, num_classes, bias=False)
-        def l2_normalise(module, input):
-            return module.weight / (module.weight.pow(2).sum(dim=0, keepdim=True).sqrt() + 1e-8)
-        self.fc.register_forward_pre_hook(l2_normalise)
-
-        # Rescaling lengthscale for loss
-        self.l = 30
+        # def l2_normalise(module, input):
+        #     return module.weight / (module.weight.pow(2).sum(dim=0, keepdim=True).sqrt() + 1e-8)
+        # self.fc.register_forward_pre_hook(l2_normalise)
 
     def _make_layer(self, in_channels: int, out_channels: int, blocks: int, stride: int = 1):
         layers = []
@@ -181,8 +191,6 @@ class ResidualClassifier(nn.Module):
         # Normalise embeddings
         x = self.layer_norm(x)
         x = x / (x.pow(2).sum(dim=1, keepdim=True).sqrt() + 1e-8)
-
-        x = x * self.l
 
         if embed_only:
             return x

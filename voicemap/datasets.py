@@ -1,4 +1,5 @@
 from torch.utils.data import Dataset, Sampler
+from abc import abstractmethod
 import torch
 import bisect
 from typing import List, Union, Iterable, Callable
@@ -151,6 +152,12 @@ class NShotTaskSampler(Sampler):
 
 class AudioDataset(Dataset):
     base_sampling_rate: int
+    df: pd.DataFrame
+
+    @property
+    @abstractmethod
+    def num_classes(self):
+        raise NotImplementedError
 
 
 class SpectrogramDataset(Dataset):
@@ -175,8 +182,14 @@ class SpectrogramDataset(Dataset):
         self.window_hop = window_hop
         self.window_type = window_type
 
+        self.df = self.dataset.df
+
     def __len__(self):
         return len(self.dataset)
+
+    @property
+    def num_classes(self):
+        return self.dataset.num_classes
 
     def waveform_to_logmelspectrogam(self, waveform: np.ndarray):
         D = librosa.stft(waveform,
@@ -192,7 +205,7 @@ class SpectrogramDataset(Dataset):
 
     def __getitem__(self, item):
         waveform, label = self.dataset[item]
-        spectrogram = self.waveform_to_logmelspectrogam(waveform)
+        spectrogram = self.waveform_to_logmelspectrogam(waveform[0])
         return spectrogram, label
 
 
@@ -426,7 +439,7 @@ class SpeakersInTheWild(AudioDataset):
         self.fragment_length = int(seconds * self.base_sampling_rate)
 
         # Get dataset info
-        self.df = pd.read_csv(self.data_path + f'/{self.split}/lists/{subset}.lst',
+        self.df = pd.read_csv(self.data_path + f'/sitw/{self.split}/lists/{subset}.lst',
                               delimiter=' ', names=['id', 'filepath'])
 
         # Have to use /keys/meta.list to get speaker_id
@@ -438,7 +451,7 @@ class SpeakersInTheWild(AudioDataset):
         if self.split == 'eval':
             meta_names += ['tag5', 'tag6', 'tag7']
 
-        meta = pd.read_csv(self.data_path + f'/{self.split}/keys/meta.lst', delimiter=' ', names=meta_names)
+        meta = pd.read_csv(self.data_path + f'/sitw/{self.split}/keys/meta.lst', delimiter=' ', names=meta_names)
         self.df = self.df.merge(meta, on='filepath')
         self.df['filepath'] = self.data_path + f'/{self.split}/' + self.df['filepath']
         self.df['index'] = self.df.index.values
