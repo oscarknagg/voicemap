@@ -1,8 +1,9 @@
 from torch.utils.data import Dataset, Sampler
 import torch
 import bisect
-from typing import List, Union, Iterable
+from typing import List, Union, Iterable, Callable
 from tqdm import tqdm
+import librosa
 import soundfile as sf
 import pandas as pd
 import numpy as np
@@ -148,8 +149,55 @@ class NShotTaskSampler(Sampler):
             yield np.stack(batch)
 
 
-class LibriSpeech(Dataset):
-    """Dataset object representing the LibriSpeec dataset (http://www.openslr.org/12/).
+class AudioDataset(Dataset):
+    base_sampling_rate: int
+
+
+class SpectrogramDataset(Dataset):
+    """Wraps a waveform dataset to transform it into a spectrogram dataset.
+
+    Args:
+        dataset: Base audio dataset.
+        normalise: If True normalise output spectogram to mean 0 and variance 1.
+        window_length: Length of STFT window in seconds.
+        window_hop: Time in seconds between STFT windows.
+        window_type: Type of STFT window i.e. 'hamming'
+    """
+    def __init__(self,
+                 dataset: AudioDataset,
+                 normalise: bool,
+                 window_length: float,
+                 window_hop: float,
+                 window_type: Union[str, float, tuple, Callable] = 'hamming'):
+        self.dataset = dataset
+        self.normalise = normalise
+        self.window_length = window_length
+        self.window_hop = window_hop
+        self.window_type = window_type
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def waveform_to_logmelspectrogam(self, waveform: np.ndarray):
+        D = librosa.stft(waveform,
+                         n_fft=int(self.dataset.base_sampling_rate * self.window_length),
+                         hop_length=int(self.dataset.base_sampling_rate * self.window_hop),
+                         window=self.window_type)
+        spect, phase = librosa.magphase(D)
+        spect = np.log1p(spect)
+        if self.normalise:
+            spect = (spect - spect.mean()) / (spect.std() + 1e-6)
+
+        return spect
+
+    def __getitem__(self, item):
+        waveform, label = self.dataset[item]
+        spectrogram = self.waveform_to_logmelspectrogam(waveform)
+        return spectrogram, label
+
+
+class LibriSpeech(AudioDataset):
+    """Dataset object representing the LibriSpeech dataset (http://www.openslr.org/12/).
 
     # Arguments
         subsets: What LibriSpeech datasets to include.
@@ -346,7 +394,7 @@ class LibriSpeech(Dataset):
         return audio_files
 
 
-class SpeakersInTheWild(Dataset):
+class SpeakersInTheWild(AudioDataset):
     """Dataset class representing the Speakers in the wild dataset (http://www.speech.sri.com/projects/sitw/).
 
     # Arguments
@@ -362,12 +410,14 @@ class SpeakersInTheWild(Dataset):
     base_sampling_rate = 16000
 
     def __init__(self,
+                 split: str,
                  subset: Union[str, List[str]],
                  seconds: int,
                  down_sampling: int,
                  stochastic: bool = True,
                  pad: bool = False,
                  data_path: str = DATA_PATH):
+        self.split = split
         self.seconds = seconds
         self.down_sampling = down_sampling
         self.stochastic = stochastic
@@ -376,16 +426,22 @@ class SpeakersInTheWild(Dataset):
         self.fragment_length = int(seconds * self.base_sampling_rate)
 
         # Get dataset info
-        self.df = pd.read_csv(self.data_path + f'/dev/lists/{subset}.lst',
+        self.df = pd.read_csv(self.data_path + f'/{self.split}/lists/{subset}.lst',
                               delimiter=' ', names=['id', 'filepath'])
 
-        # Have to use /dev/keys/meta.list to get speaker_id
+        # Have to use /keys/meta.list to get speaker_id
         meta_names = ['filepath', 'speaker_id', 'gender', 'mic_type', 'session_id', 'audio_start', 'audio_end',
                       'num_speakers', 'artifact_labels', 'artifact_level', 'environment', 'tag1', 'tag2', 'tag3',
                       'tag4']
-        meta = pd.read_csv(self.data_path + f'/dev/keys/meta.lst', delimiter=' ', names=meta_names)
+
+        # Eval set has a greater number of tags
+        if self.split == 'eval':
+            meta_names += ['tag5', 'tag6', 'tag7']
+
+        meta = pd.read_csv(self.data_path + f'/{self.split}/keys/meta.lst', delimiter=' ', names=meta_names)
         self.df = self.df.merge(meta, on='filepath')
-        self.df['filepath'] = self.data_path + f'/dev/' + self.df['filepath']
+        self.df['filepath'] = self.data_path + f'/{self.split}/' + self.df['filepath']
+        self.df['index'] = self.df.index.values
 
         # Create dicts
         self.datasetid_to_filepath = self.df.to_dict()['filepath']
