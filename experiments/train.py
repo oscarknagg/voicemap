@@ -43,10 +43,9 @@ test_fraction = 0.1
 ###################
 # Create datasets #
 ###################
-# librispeech_subsets = ['dev-clean', 'train-clean-100', 'train-clean-360', 'train-other-500']
-librispeech_subsets = ['dev-clean', ]
+librispeech_subsets = ['train-clean-100', 'train-clean-360', 'train-other-500']
 librispeech = LibriSpeech(librispeech_subsets, args.n_seconds, args.downsampling, stochastic=True, pad=False)
-sitw = SpeakersInTheWild('enroll-core', args.n_seconds, args.downsampling, True, True, '/home/oscar/data/sitw')
+sitw = SpeakersInTheWild('dev', 'enroll-core', args.n_seconds, args.downsampling, True, True)
 
 data = ClassConcatDataset([librispeech, sitw])
 num_classes = data.num_classes
@@ -66,8 +65,7 @@ test = torch.utils.data.Subset(data, test_indices)
 ################
 # Define model #
 ################
-# model = ResidualClassifier(args.filters, [2, 2, 2, 2], num_classes)
-model = get_classifier(args.filters, 128, num_classes)
+model = ResidualClassifier(args.filters, [2, 2, 2, 2], num_classes)
 model.to(device, dtype=torch.double)
 
 
