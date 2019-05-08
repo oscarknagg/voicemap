@@ -1,4 +1,5 @@
 from torch.utils.data import Dataset, Sampler
+from torchvision import datasets
 from abc import abstractmethod
 import torch
 import bisect
@@ -24,6 +25,12 @@ def to_categorical(y, num_classes):
     one_hot = np.zeros(num_classes)
     one_hot[y] = 1
     return one_hot
+
+
+class DatasetFolder(datasets.DatasetFolder):
+    @property
+    def num_classes(self):
+        return len(set(self.classes))
 
 
 class ClassConcatDataset(Dataset):
@@ -150,6 +157,51 @@ class NShotTaskSampler(Sampler):
             yield np.stack(batch)
 
 
+class PairDataset(Dataset):
+    def __init__(self, dataset, pairs=None, labels=None, num_pairs=None):
+        self.dataset = dataset
+        self.pairs = pairs
+        self.labels = labels
+        if num_pairs is None:
+            assert len(pairs) == len(labels)
+        else:
+            self.num_pairs = num_pairs
+
+    def __len__(self):
+        if self.num_pairs is None:
+            return len(self.labels)
+        else:
+            return self.num_pairs
+
+    def __getitem__(self, index):
+        if self.pairs is not None:
+            x = self.dataset[self.pairs[index][0]][0]
+            y = self.dataset[self.pairs[index][0]][0]
+            label = self.labels[index]
+        else:
+            index_1 = np.random.randint(len(self.dataset))
+            index_2 = np.random.randint(len(self.dataset))
+            x, x_label = self.dataset[index_1]
+            y, y_label = self.dataset[index_2]
+            label = x_label == y_label
+
+        return (x, y), label
+
+
+def collate_pairs(pairs):
+    lefts = []
+    rights = []
+    labels = []
+    for (x, y), label in pairs:
+        lefts.append(x)
+        rights.append(y)
+        labels.append(label)
+
+    x = torch.from_numpy(np.stack(lefts)).double()
+    y = torch.from_numpy(np.stack(rights)).double()
+    return (x, y), labels
+
+
 class AudioDataset(Dataset):
     base_sampling_rate: int
     df: pd.DataFrame
@@ -172,12 +224,12 @@ class SpectrogramDataset(Dataset):
     """
     def __init__(self,
                  dataset: AudioDataset,
-                 normalise: bool,
+                 normalisation: Union[str, None],
                  window_length: float,
                  window_hop: float,
                  window_type: Union[str, float, tuple, Callable] = 'hamming'):
         self.dataset = dataset
-        self.normalise = normalise
+        self.normalisation = normalisation
         self.window_length = window_length
         self.window_hop = window_hop
         self.window_type = window_type
@@ -198,8 +250,10 @@ class SpectrogramDataset(Dataset):
                          window=self.window_type)
         spect, phase = librosa.magphase(D)
         spect = np.log1p(spect)
-        if self.normalise:
+        if self.normalisation == 'global':
             spect = (spect - spect.mean()) / (spect.std() + 1e-6)
+        elif self.normalisation == 'frequency':
+            spect = (spect - spect.mean(axis=0, keepdims=True)) / (spect.std(axis=0, keepdims=True) + 1e-6)
 
         return spect
 
@@ -227,7 +281,7 @@ class LibriSpeech(AudioDataset):
 
     def __init__(self,
                  subsets: Union[str, List[str]],
-                 seconds: int,
+                 seconds: Union[int, None],
                  down_sampling: int,
                  label: str = 'speaker',
                  stochastic: bool = True,
@@ -237,8 +291,9 @@ class LibriSpeech(AudioDataset):
         if label not in ('sex', 'speaker'):
             raise(ValueError, 'Label type must be one of (\'sex\', \'speaker\')')
 
-        if int(seconds * self.base_sampling_rate) % down_sampling != 0:
-            raise(ValueError, 'Down sampling must be an integer divisor of the fragment length.')
+        if seconds is not None:
+            if int(seconds * self.base_sampling_rate) % down_sampling != 0:
+                raise(ValueError, 'Down sampling must be an integer divisor of the fragment length.')
 
         # Convert subset to list if it is a string
         # This allows to handle list of multiple subsets the same a single subset
@@ -246,15 +301,16 @@ class LibriSpeech(AudioDataset):
             subsets = [subsets]
 
         self.subsets = subsets
-        self.fragment_seconds = seconds
+        self.seconds = seconds
+        if seconds is not None:
+            self.fragment_length = int(seconds * self.base_sampling_rate)
         self.down_sampling = down_sampling
-        self.fragment_length = int(seconds * self.base_sampling_rate)
         self.stochastic = stochastic
         self.pad = pad
         self.label = label
         self.data_path = data_path
 
-        print('Initialising LibriSpeechDataset with minimum length = {}s and subsets = {}'.format(seconds, subsets))
+        # print('Initialising LibriSpeechDataset with minimum length = {}s and subsets = {}'.format(seconds, subsets))
 
         cached_df = []
         found_cache = {s: False for s in subsets}
@@ -294,8 +350,8 @@ class LibriSpeech(AudioDataset):
             self.df[self.df['subset'] == s].to_csv(PATH + '/data/{}.index.csv'.format(s), index=False)
 
         # Trim too-small files
-        if not self.pad:
-            self.df = self.df[self.df['seconds'] > self.fragment_seconds]
+        if not self.pad and self.seconds is not None:
+            self.df = self.df[self.df['seconds'] > self.seconds]
         self.num_speakers = len(self.df['id'].unique())
 
         # Renaming for clarity
@@ -324,23 +380,26 @@ class LibriSpeech(AudioDataset):
         else:
             fragment_start_index = 0
 
-        instance = instance[fragment_start_index:fragment_start_index+self.fragment_length]
+        if self.seconds is not None:
+            instance = instance[fragment_start_index:fragment_start_index+self.fragment_length]
+        else:
+            # Use whole sample
+            pass
 
         # Check for required length and pad if necessary
-        if self.pad and len(instance) < self.fragment_length:
-            less_timesteps = self.fragment_length - len(instance)
-            if self.stochastic:
-                # Stochastic padding, ensure instance length == self.fragment_length by appending a random number of 0s
-                # before and the appropriate number of 0s after the instance
+        if hasattr(self, 'fragment_length'):
+            if self.pad and len(instance) < self.fragment_length:
                 less_timesteps = self.fragment_length - len(instance)
+                if self.stochastic:
+                    # Stochastic padding, ensure instance length == self.fragment_length by appending a random number of 0s
+                    # before and the appropriate number of 0s after the instance
+                    before_len = np.random.randint(0, less_timesteps)
+                    after_len = less_timesteps - before_len
 
-                before_len = np.random.randint(0, less_timesteps)
-                after_len = less_timesteps - before_len
-
-                instance = np.pad(instance, (before_len, after_len), 'constant')
-            else:
-                # Deterministic padding. Append 0s to reach self.fragment_length
-                instance = np.pad(instance, (0, less_timesteps), 'constant')
+                    instance = np.pad(instance, (before_len, after_len), 'constant')
+                else:
+                    # Deterministic padding. Append 0s to reach self.fragment_length
+                    instance = np.pad(instance, (0, less_timesteps), 'constant')
 
         if self.label == 'sex':
             sex = self.datasetid_to_sex[index]
@@ -425,18 +484,19 @@ class SpeakersInTheWild(AudioDataset):
     def __init__(self,
                  split: str,
                  subset: Union[str, List[str]],
-                 seconds: int,
+                 seconds: Union[int, None],
                  down_sampling: int,
                  stochastic: bool = True,
                  pad: bool = False,
                  data_path: str = DATA_PATH):
         self.split = split
         self.seconds = seconds
+        if seconds is not None:
+            self.fragment_length = int(seconds * self.base_sampling_rate)
         self.down_sampling = down_sampling
         self.stochastic = stochastic
         self.pad = pad
         self.data_path = data_path
-        self.fragment_length = int(seconds * self.base_sampling_rate)
 
         # Get dataset info
         self.df = pd.read_csv(self.data_path + f'/sitw/{self.split}/lists/{subset}.lst',
@@ -453,7 +513,7 @@ class SpeakersInTheWild(AudioDataset):
 
         meta = pd.read_csv(self.data_path + f'/sitw/{self.split}/keys/meta.lst', delimiter=' ', names=meta_names)
         self.df = self.df.merge(meta, on='filepath')
-        self.df['filepath'] = self.data_path + f'/{self.split}/' + self.df['filepath']
+        self.df['filepath'] = self.data_path + f'/sitw/{self.split}/' + self.df['filepath']
         self.df['index'] = self.df.index.values
 
         # Create dicts
@@ -479,23 +539,28 @@ class SpeakersInTheWild(AudioDataset):
         else:
             fragment_start_index = 0
 
-        instance = instance[fragment_start_index:fragment_start_index + self.fragment_length]
+        if self.seconds is not None:
+            instance = instance[fragment_start_index:fragment_start_index + self.fragment_length]
+        else:
+            # Use whole sample
+            pass
 
-        # Check for required length and pad if necessary
-        if self.pad and len(instance) < self.fragment_length:
-            less_timesteps = self.fragment_length - len(instance)
-            if self.stochastic:
-                # Stochastic padding, ensure instance length == self.fragment_length by appending a random number of 0s
-                # before and the appropriate number of 0s after the instance
+        if hasattr(self, 'fragment_length'):
+            # Check for required length and pad if necessary
+            if self.pad and len(instance) < self.fragment_length:
                 less_timesteps = self.fragment_length - len(instance)
+                if self.stochastic:
+                    # Stochastic padding, ensure instance length == self.fragment_length by appending a random number of 0s
+                    # before and the appropriate number of 0s after the instance
+                    less_timesteps = self.fragment_length - len(instance)
 
-                before_len = np.random.randint(0, less_timesteps)
-                after_len = less_timesteps - before_len
+                    before_len = np.random.randint(0, less_timesteps)
+                    after_len = less_timesteps - before_len
 
-                instance = np.pad(instance, (before_len, after_len), 'constant')
-            else:
-                # Deterministic padding. Append 0s to reach self.fragment_length
-                instance = np.pad(instance, (0, less_timesteps), 'constant')
+                    instance = np.pad(instance, (before_len, after_len), 'constant')
+                else:
+                    # Deterministic padding. Append 0s to reach self.fragment_length
+                    instance = np.pad(instance, (0, less_timesteps), 'constant')
 
         label = self.datasetid_to_speaker_id[index]
         label = self.speaker_id_mapping[label]
