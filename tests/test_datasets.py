@@ -1,14 +1,16 @@
 import unittest
 import numpy as np
 
+import voicemap.datasets.dummy
+import voicemap.datasets.librispeech
 from voicemap import datasets
 from config import DATA_PATH
 
 
 class TestClassConcatDataset(unittest.TestCase):
     def test_dataset(self):
-        data1 = datasets.DummyDataset(1, 10)
-        data2 = datasets.DummyDataset(1, 5)
+        data1 = voicemap.datasets.dummy.DummyDataset(1, 10)
+        data2 = voicemap.datasets.dummy.DummyDataset(1, 5)
 
         data = datasets.ClassConcatDataset([data1, data2])
 
@@ -28,7 +30,7 @@ class TestPrecomputeSpectrograms(unittest.TestCase):
     def tes_dataset_sizes(self):
         librispeech_subsets = ['train-clean-100', 'train-clean-360', 'train-other-500', 'dev-clean', 'test-clean']
         for subset in librispeech_subsets:
-            raw = datasets.LibriSpeech(subset, None, 1)
+            raw = voicemap.datasets.librispeech.LibriSpeech(subset, None, 1)
             preprocessed = datasets.DatasetFolder(DATA_PATH + f'/LibriSpeech.spec/{subset}/', extensions=['.npy'],
                                                   loader=np.load)
             self.assertEqual(len(raw), len(preprocessed))
